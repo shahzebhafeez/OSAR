@@ -1,6 +1,6 @@
 # osar_gui.py
 # A graphical user interface for the OSAR simulation.
-# --- ENHANCED with professional plotting, node labels, and interactive hover tooltips ---
+# --- ENHANCED with professional plotting, node labels, interactive hover tooltips, PDR, and Overhead Ratio ---
 
 import tkinter as tk
 from tkinter import ttk, scrolledtext
@@ -14,10 +14,10 @@ import queue
 # --- Use a professional, publication-quality plot style ---
 plt.style.use('seaborn-v0_8-whitegrid')
 
-# ---------- Global Parameters (Default Values) ----------
-LP = 512  # Packet size in bits (64 bytes)
-CH_BANDWIDTH = 6e3  # 6 kHz bandwidth per channel
-DEFAULT_PT_DB = 150.0 # Default transmit power in dB re uPa
+# ---------- Global Parameters (Default Values from Paper) ----------
+LP = 512  # Packet size in bits (64 bytes) [cite: 282]
+CH_BANDWIDTH = 6e3  # 6 kHz bandwidth per channel [cite: 284]
+DEFAULT_PT_DB = 150.0 # Default transmit power in dB re uPa [cite: 291]
 AREA = 500.0
 TX_RANGE = 250.0
 P_BUSY = 0.7
@@ -276,8 +276,8 @@ class SimulationApp:
                     # --- ENHANCED PLOTTING AESTHETICS ---
                     # Plot all sensor nodes
                     self.sc = self.ax.scatter(data['pos'][:, 0], data['pos'][:, 1], data['pos'][:, 2], 
-                                       c=data['depths'], cmap="viridis_r", s=50, alpha=0.9, 
-                                       edgecolors='black', linewidth=0.6, label="Sensor Nodes")
+                                             c=data['depths'], cmap="viridis_r", s=50, alpha=0.9, 
+                                             edgecolors='black', linewidth=0.6, label="Sensor Nodes")
                     
                     # Plot Source and Destination with higher visibility
                     self.ax.scatter(data['src'][0], data['src'][1], data['src'][2], 
@@ -356,6 +356,10 @@ class SimulationApp:
         route, current = [src.node_id], src
         total_delay, visited_pos = 0.0, [current.pos]
         
+        # --- Metrics Initialization ---
+        packets_generated = 1
+        packets_delivered = 0
+        
         while True:
             for node in nodes: node.channel_state = rng.random(M_SUBCARRIERS) < p['P_BUSY']
             
@@ -372,7 +376,21 @@ class SimulationApp:
                 for n in nodes: n.channel_state = rng.random(M_SUBCARRIERS) < p['P_BUSY']
                 best_nbr, TD, ch, snr_lin = select_best_next_hop(current, nodes, dest_pos, p['TX_RANGE'], channels_khz, LP, CH_BANDWIDTH, p['PT_LINEAR'])
                 if attempt > 20:
-                    self.q.put({'type': 'log', 'message': f"⚠️ Node {current.node_id} is stuck. Aborting."}); self.q.put({'type': 'finished'}); return
+                    self.q.put({'type': 'log', 'message': f"⚠️ Node {current.node_id} is stuck. Aborting."})
+                    packets_delivered = 0 # Failed to deliver
+                    # --- Final Stats on Failure ---
+                    self.q.put({'type': 'log', 'message': "\n--- Simulation Stats ---"})
+                    pdr = packets_delivered / packets_generated
+                    self.q.put({'type': 'log', 'message': f"Packet Delivery Ratio (PDR): {pdr:.0%}"})
+                    
+                    num_hops = len(route) - 1
+                    num_control_packets = p['N_NODES']  # Periodic beacons from all nodes
+                    num_data_packets = num_hops
+                    total_packets = num_control_packets + num_data_packets
+                    overhead_ratio = num_control_packets / total_packets if total_packets > 0 else 0
+                    self.q.put({'type': 'log', 'message': f"Overhead Ratio: {overhead_ratio:.4f}"})
+                    
+                    self.q.put({'type': 'finished'}); return
 
             total_delay += TD; route.append(best_nbr.node_id); visited_pos.append(best_nbr.pos)
             log_msg = f"→ {best_nbr.node_id} | D={best_nbr.depth:.1f}m | TD={TD:.4f}s | SNR={10*np.log10(snr_lin+EPS):.1f}dB"
@@ -397,10 +415,27 @@ class SimulationApp:
                 self.q.put({'type': 'log', 'message': final_log})
                 self.q.put({'type': 'plot_route', 'route_pos': visited_pos})
                 self.q.put({'type': 'log', 'message': "\n✅ Reached surface buoy!"})
+                packets_delivered = 1 # Successfully delivered
                 break
         
         self.q.put({'type': 'log', 'message': f"\nFinal Route: {' → '.join(map(str, route))}"})
         self.q.put({'type': 'log', 'message': f"Total Delay: {total_delay:.4f} s"})
+
+        # --- Final Performance Metrics Calculation and Logging ---
+        self.q.put({'type': 'log', 'message': "\n--- Simulation Stats ---"})
+        
+        # PDR Calculation
+        pdr = packets_delivered / packets_generated
+        self.q.put({'type': 'log', 'message': f"Packet Delivery Ratio (PDR): {pdr:.0%}"})
+        
+        # Overhead Ratio Calculation
+        num_hops = len(route) - 1
+        num_control_packets = p['N_NODES']  # Assumption: 1 periodic beacon per node
+        num_data_packets = num_hops         # The data packet is transmitted over each hop
+        total_packets_transmitted = num_control_packets + num_data_packets
+        overhead_ratio = num_control_packets / total_packets_transmitted if total_packets_transmitted > 0 else 0
+        self.q.put({'type': 'log', 'message': f"Overhead Ratio: {overhead_ratio:.4f} (Control: {num_control_packets}, Data: {num_data_packets})"})
+        
         self.q.put({'type': 'finished'})
 
 if __name__ == "__main__":

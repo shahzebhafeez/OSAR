@@ -1,0 +1,79 @@
+2025-11-13 00:13:14 [Main-GUI-Thread   ] [INFO ] Logging configured. Log file: d:\OSAR\ml\simulation_log.txt
+2025-11-13 00:13:14 [Main-GUI-Thread   ] [INFO ] Attempting to load models from: d:\OSAR
+2025-11-13 00:13:14 [Main-GUI-Thread   ] [INFO ] Successfully loaded all SVM models and scalers.
+2025-11-13 00:13:14 [Main-GUI-Thread   ] [INFO ] Simulation ended or was stopped.
+2025-11-13 00:13:19 [Main-GUI-Thread   ] [INFO ] --- New Simulation Run Started ---
+2025-11-13 00:13:19 [Orchestrator      ] [INFO ] --- [1/3] Starting OSAR Simulation (Static Routing) ---
+2025-11-13 00:13:19 [OSAR-Thread       ] [INFO ] OSAR thread started with seed: 68
+2025-11-13 00:13:19 [OSAR-Thread       ] [INFO ] Created 30 sensor nodes.
+2025-11-13 00:13:19 [OSAR-Thread       ] [INFO ] Source: Node 28, Depth=193.1 m
+2025-11-13 00:13:19 [OSAR-Thread       ] [INFO ] Starting to route 10 packets...
+2025-11-13 00:13:19 [OSAR-Thread       ] [INFO ] --- [OSAR] Routing Packet 1/10 ---
+2025-11-13 00:13:19 [OSAR-Thread       ] [DEBUG]   28 -> 25 | Hop Delay: 0.0683s
+2025-11-13 00:13:19 [OSAR-Thread       ] [INFO ]   25 -> Buoy | Final Hop Delay: 0.1005s
+2025-11-13 00:13:19 [OSAR-Thread       ] [INFO ] --- [OSAR] Routing Packet 2/10 ---
+2025-11-13 00:13:19 [OSAR-Thread       ] [DEBUG]   28 -> 25 | Hop Delay: 0.0683s
+2025-11-13 00:13:19 [OSAR-Thread       ] [INFO ]   25 -> Buoy | Final Hop Delay: 0.1005s
+2025-11-13 00:13:19 [OSAR-Thread       ] [INFO ] --- [OSAR] Routing Packet 3/10 ---
+2025-11-13 00:13:19 [OSAR-Thread       ] [DEBUG]   28 -> 25 | Hop Delay: 0.0683s
+2025-11-13 00:13:19 [OSAR-Thread       ] [INFO ]   25 -> Buoy | Final Hop Delay: 0.1005s
+2025-11-13 00:13:20 [OSAR-Thread       ] [INFO ] --- [OSAR] Routing Packet 4/10 ---
+2025-11-13 00:13:20 [OSAR-Thread       ] [DEBUG]   28 -> 25 | Hop Delay: 0.0685s
+2025-11-13 00:13:20 [OSAR-Thread       ] [INFO ]   25 -> Buoy | Final Hop Delay: 0.1006s
+2025-11-13 00:13:20 [OSAR-Thread       ] [INFO ] --- [OSAR] Routing Packet 5/10 ---
+2025-11-13 00:13:20 [OSAR-Thread       ] [DEBUG]   28 -> 25 | Hop Delay: 0.0683s
+2025-11-13 00:13:20 [OSAR-Thread       ] [INFO ]   25 -> Buoy | Final Hop Delay: 0.1006s
+2025-11-13 00:13:20 [OSAR-Thread       ] [INFO ] --- [OSAR] Routing Packet 6/10 ---
+2025-11-13 00:13:20 [OSAR-Thread       ] [DEBUG]   28 -> 25 | Hop Delay: 0.0684s
+2025-11-13 00:13:20 [OSAR-Thread       ] [INFO ]   25 -> Buoy | Final Hop Delay: 0.1006s
+2025-11-13 00:13:20 [OSAR-Thread       ] [INFO ] --- [OSAR] Routing Packet 7/10 ---
+2025-11-13 00:13:20 [OSAR-Thread       ] [DEBUG]   28 -> 25 | Hop Delay: 0.0683s
+2025-11-13 00:13:20 [OSAR-Thread       ] [INFO ]   25 -> Buoy | Final Hop Delay: 0.1006s
+2025-11-13 00:13:20 [OSAR-Thread       ] [INFO ] --- [OSAR] Routing Packet 8/10 ---
+2025-11-13 00:13:20 [OSAR-Thread       ] [DEBUG]   28 -> 25 | Hop Delay: 0.0684s
+2025-11-13 00:13:20 [OSAR-Thread       ] [INFO ]   25 -> Buoy | Final Hop Delay: 0.1006s
+2025-11-13 00:13:20 [OSAR-Thread       ] [INFO ] --- [OSAR] Routing Packet 9/10 ---
+2025-11-13 00:13:20 [OSAR-Thread       ] [DEBUG]   28 -> 25 | Hop Delay: 0.0683s
+2025-11-13 00:13:20 [OSAR-Thread       ] [INFO ]   25 -> Buoy | Final Hop Delay: 0.1005s
+2025-11-13 00:13:20 [OSAR-Thread       ] [INFO ] --- [OSAR] Routing Packet 10/10 ---
+2025-11-13 00:13:20 [OSAR-Thread       ] [DEBUG]   28 -> 25 | Hop Delay: 0.0683s
+2025-11-13 00:13:20 [OSAR-Thread       ] [INFO ]   25 -> Buoy | Final Hop Delay: 0.1006s
+2025-11-13 00:13:20 [OSAR-Thread       ] [INFO ] [OSAR Thread] Finished.
+2025-11-13 00:13:20 [Orchestrator      ] [INFO ] --- OSAR Simulation Finished ---
+2025-11-13 00:13:21 [Orchestrator      ] [INFO ] 
+--- [2/3] Starting AUV Simulation (Mobile Relays) ---
+2025-11-13 00:13:21 [AUV-Thread        ] [INFO ] [AUV Sim]: AUV simulation thread started.
+2025-11-13 00:13:21 [AUV-Thread        ] [INFO ] [AUV 0]: Created. Speed: 15.8 m/s, Relay Radius: 50.0m
+2025-11-13 00:13:21 [AUV-Thread        ] [INFO ] [AUV 1]: Created. Speed: 17.3 m/s, Relay Radius: 50.0m
+2025-11-13 00:13:21 [AUV-Thread        ] [INFO ] [AUV 2]: Created. Speed: 14.8 m/s, Relay Radius: 50.0m
+2025-11-13 00:13:21 [AUV-Thread        ] [INFO ] [AUV 3]: Created. Speed: 10.7 m/s, Relay Radius: 50.0m
+2025-11-13 00:13:21 [AUV-Thread        ] [INFO ] [AUV 4]: Created. Speed: 15.5 m/s, Relay Radius: 50.0m
+2025-11-13 00:13:41 [Main-GUI-Thread   ] [WARNING] --- SIMULATION STOP REQUESTED BY USER ---
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ] [AUV Sim]: Main loop exited.
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ] 
+--- AUV FINAL STATS ---
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ] --- AUV 0 Report ---
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ]   Speed: 15.80 m/s
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ]   Nodes Visited: None
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ]   Data Relayed (Node IDs): None
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ] --- AUV 1 Report ---
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ]   Speed: 17.34 m/s
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ]   Nodes Visited: None
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ]   Data Relayed (Node IDs): None
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ] --- AUV 2 Report ---
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ]   Speed: 14.82 m/s
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ]   Nodes Visited: None
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ]   Data Relayed (Node IDs): None
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ] --- AUV 3 Report ---
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ]   Speed: 10.71 m/s
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ]   Nodes Visited: None
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ]   Data Relayed (Node IDs): None
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ] --- AUV 4 Report ---
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ]   Speed: 15.47 m/s
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ]   Nodes Visited: None
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ]   Data Relayed (Node IDs): None
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ] 
+Total Unique Nodes Relayed by all AUVs: 0
+2025-11-13 00:13:41 [AUV-Thread        ] [INFO ] [AUV Thread] Finished.
+2025-11-13 00:13:41 [Orchestrator      ] [WARNING] Simulation stopped during AUV phase.
+2025-11-13 00:13:41 [Orchestrator      ] [INFO ] [Orchestrator Thread] Finished.

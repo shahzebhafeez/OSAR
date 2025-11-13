@@ -1,0 +1,108 @@
+2025-11-12 09:34:12 [Main-GUI-Thread] [INFO ] Logging configured. Log file: simulation_log.txt
+2025-11-12 09:34:12 [Main-GUI-Thread] [INFO ] Attempting to load models from: d:\OSAR
+2025-11-12 09:34:12 [Main-GUI-Thread] [INFO ] Successfully loaded all SVM models and scalers.
+2025-11-12 09:34:13 [Main-GUI-Thread] [INFO ] Simulation ended.
+2025-11-12 09:34:19 [Orchestrator   ] [INFO ] --- [1/2] Starting OSAR Simulation (Static Routing) ---
+2025-11-12 09:34:19 [OSAR-Thread    ] [INFO ] OSAR thread started with seed: 1762922059
+2025-11-12 09:34:19 [OSAR-Thread    ] [INFO ] Created 30 sensor nodes.
+2025-11-12 09:34:19 [OSAR-Thread    ] [INFO ] Source: Node 24, Depth=197.9 m
+2025-11-12 09:34:20 [OSAR-Thread    ] [INFO ] Starting to route 10 packets...
+2025-11-12 09:34:20 [OSAR-Thread    ] [INFO ] --- [OSAR] Routing Packet 1/10 ---
+2025-11-12 09:34:20 [OSAR-Thread    ] [DEBUG]   24 -> 21 | Hop Delay: 0.0495s
+2025-11-12 09:34:20 [OSAR-Thread    ] [INFO ]   21 -> Buoy | Final Hop Delay: 0.1151s
+2025-11-12 09:34:20 [OSAR-Thread    ] [INFO ] --- [OSAR] Routing Packet 2/10 ---
+2025-11-12 09:34:20 [OSAR-Thread    ] [DEBUG]   24 -> 21 | Hop Delay: 0.0495s
+2025-11-12 09:34:20 [OSAR-Thread    ] [INFO ]   21 -> Buoy | Final Hop Delay: 0.1151s
+2025-11-12 09:34:20 [OSAR-Thread    ] [INFO ] --- [OSAR] Routing Packet 3/10 ---
+2025-11-12 09:34:20 [OSAR-Thread    ] [DEBUG]   24 -> 21 | Hop Delay: 0.0495s
+2025-11-12 09:34:20 [OSAR-Thread    ] [INFO ]   21 -> Buoy | Final Hop Delay: 0.1151s
+2025-11-12 09:34:20 [OSAR-Thread    ] [INFO ] --- [OSAR] Routing Packet 4/10 ---
+2025-11-12 09:34:20 [OSAR-Thread    ] [DEBUG]   24 -> 21 | Hop Delay: 0.0496s
+2025-11-12 09:34:20 [OSAR-Thread    ] [INFO ]   21 -> Buoy | Final Hop Delay: 0.1151s
+2025-11-12 09:34:20 [OSAR-Thread    ] [INFO ] --- [OSAR] Routing Packet 5/10 ---
+2025-11-12 09:34:20 [OSAR-Thread    ] [DEBUG]   24 -> 21 | Hop Delay: 0.0495s
+2025-11-12 09:34:20 [OSAR-Thread    ] [INFO ]   21 -> Buoy | Final Hop Delay: 0.1151s
+2025-11-12 09:34:20 [OSAR-Thread    ] [INFO ] --- [OSAR] Routing Packet 6/10 ---
+2025-11-12 09:34:20 [OSAR-Thread    ] [DEBUG]   24 -> 21 | Hop Delay: 0.0495s
+2025-11-12 09:34:20 [OSAR-Thread    ] [INFO ]   21 -> Buoy | Final Hop Delay: 0.1151s
+2025-11-12 09:34:21 [OSAR-Thread    ] [INFO ] --- [OSAR] Routing Packet 7/10 ---
+2025-11-12 09:34:21 [OSAR-Thread    ] [DEBUG]   24 -> 21 | Hop Delay: 0.0495s
+2025-11-12 09:34:21 [OSAR-Thread    ] [INFO ]   21 -> Buoy | Final Hop Delay: 0.1150s
+2025-11-12 09:34:21 [OSAR-Thread    ] [INFO ] --- [OSAR] Routing Packet 8/10 ---
+2025-11-12 09:34:21 [OSAR-Thread    ] [DEBUG]   24 -> 21 | Hop Delay: 0.0495s
+2025-11-12 09:34:21 [OSAR-Thread    ] [INFO ]   21 -> Buoy | Final Hop Delay: 0.1150s
+2025-11-12 09:34:21 [OSAR-Thread    ] [INFO ] --- [OSAR] Routing Packet 9/10 ---
+2025-11-12 09:34:21 [OSAR-Thread    ] [DEBUG]   24 -> 21 | Hop Delay: 0.0495s
+2025-11-12 09:34:21 [OSAR-Thread    ] [INFO ]   21 -> Buoy | Final Hop Delay: 0.1149s
+2025-11-12 09:34:21 [OSAR-Thread    ] [INFO ] --- [OSAR] Routing Packet 10/10 ---
+2025-11-12 09:34:21 [OSAR-Thread    ] [DEBUG]   24 -> 21 | Hop Delay: 0.0495s
+2025-11-12 09:34:21 [OSAR-Thread    ] [INFO ]   21 -> Buoy | Final Hop Delay: 0.1151s
+2025-11-12 09:34:21 [OSAR-Thread    ] [INFO ] [OSAR Thread] Finished.
+2025-11-12 09:34:21 [Orchestrator   ] [INFO ] --- OSAR Simulation Finished ---
+2025-11-12 09:34:21 [Orchestrator   ] [INFO ] 
+--- [2/2] Starting AUV + MC Simulation (Mobile Relays) ---
+2025-11-12 09:34:21 [AUV-Thread     ] [INFO ] [AUV Sim]: AUV simulation thread started.
+2025-11-12 09:34:21 [AUV-Thread     ] [INFO ] [AUV 0]: Created. Speed: 4.3 m/s, Relay Radius: 50.0m
+2025-11-12 09:34:21 [AUV-Thread     ] [INFO ] [AUV 1]: Created. Speed: 2.3 m/s, Relay Radius: 50.0m
+2025-11-12 09:34:21 [AUV-Thread     ] [INFO ] [AUV 2]: Created. Speed: 2.1 m/s, Relay Radius: 50.0m
+2025-11-12 09:34:21 [AUV-Thread     ] [INFO ] [AUV 3]: Created. Speed: 4.9 m/s, Relay Radius: 50.0m
+2025-11-12 09:34:21 [AUV-Thread     ] [INFO ] [AUV 4]: Created. Speed: 1.1 m/s, Relay Radius: 50.0m
+2025-11-12 09:34:21 [MC-Thread      ] [INFO ] [MC Sim]: MC logic thread started.
+2025-11-12 09:34:21 [MC-Thread      ] [DEBUG] [MC Sim]: Loop start, sleeping...
+2025-11-12 09:34:26 [MC-Thread      ] [DEBUG] [MC]: Waking up to update controllers...
+2025-11-12 09:34:26 [MC-Thread      ] [INFO ] [MC]: LCs updated: None
+2025-11-12 09:34:26 [MC-Thread      ] [INFO ] [MC]: OC updated: None
+2025-11-12 09:34:26 [MC-Thread      ] [DEBUG] [MC Sim]: Loop start, sleeping...
+2025-11-12 09:34:31 [MC-Thread      ] [DEBUG] [MC]: Waking up to update controllers...
+2025-11-12 09:34:31 [MC-Thread      ] [INFO ] [MC]: LCs updated: None
+2025-11-12 09:34:31 [MC-Thread      ] [INFO ] [MC]: OC updated: None
+2025-11-12 09:34:31 [MC-Thread      ] [DEBUG] [MC Sim]: Loop start, sleeping...
+2025-11-12 09:34:36 [MC-Thread      ] [DEBUG] [MC]: Waking up to update controllers...
+2025-11-12 09:34:37 [MC-Thread      ] [INFO ] [MC]: LCs updated: None
+2025-11-12 09:34:37 [MC-Thread      ] [INFO ] [MC]: OC updated: None
+2025-11-12 09:34:37 [MC-Thread      ] [DEBUG] [MC Sim]: Loop start, sleeping...
+2025-11-12 09:34:42 [MC-Thread      ] [DEBUG] [MC]: Waking up to update controllers...
+2025-11-12 09:34:42 [MC-Thread      ] [INFO ] [MC]: LCs updated: None
+2025-11-12 09:34:42 [MC-Thread      ] [INFO ] [MC]: OC updated: None
+2025-11-12 09:34:42 [MC-Thread      ] [DEBUG] [MC Sim]: Loop start, sleeping...
+2025-11-12 09:34:47 [MC-Thread      ] [DEBUG] [MC]: Waking up to update controllers...
+2025-11-12 09:34:47 [MC-Thread      ] [INFO ] [MC]: LCs updated: None
+2025-11-12 09:34:47 [MC-Thread      ] [INFO ] [MC]: OC updated: None
+2025-11-12 09:34:47 [MC-Thread      ] [DEBUG] [MC Sim]: Loop start, sleeping...
+2025-11-12 09:34:52 [MC-Thread      ] [DEBUG] [MC]: Waking up to update controllers...
+2025-11-12 09:34:52 [MC-Thread      ] [INFO ] [MC]: LCs updated: None
+2025-11-12 09:34:52 [MC-Thread      ] [INFO ] [MC]: OC updated: None
+2025-11-12 09:34:52 [MC-Thread      ] [DEBUG] [MC Sim]: Loop start, sleeping...
+2025-11-12 09:34:57 [MC-Thread      ] [DEBUG] [MC]: Waking up to update controllers...
+2025-11-12 09:34:57 [MC-Thread      ] [INFO ] [MC]: LCs updated: None
+2025-11-12 09:34:57 [MC-Thread      ] [INFO ] [MC]: OC updated: None
+2025-11-12 09:34:57 [MC-Thread      ] [DEBUG] [MC Sim]: Loop start, sleeping...
+2025-11-12 09:34:57 [AUV-Thread     ] [INFO ] [AUV 0]: Collected data from Node 26
+2025-11-12 09:35:02 [MC-Thread      ] [DEBUG] [MC]: Waking up to update controllers...
+2025-11-12 09:35:02 [MC-Thread      ] [INFO ] [MC]: LCs updated: None
+2025-11-12 09:35:02 [MC-Thread      ] [INFO ] [MC]: OC updated: None
+2025-11-12 09:35:02 [MC-Thread      ] [DEBUG] [MC Sim]: Loop start, sleeping...
+2025-11-12 09:35:07 [MC-Thread      ] [DEBUG] [MC]: Waking up to update controllers...
+2025-11-12 09:35:07 [MC-Thread      ] [INFO ] [MC]: LCs updated: None
+2025-11-12 09:35:07 [MC-Thread      ] [INFO ] [MC]: OC updated: None
+2025-11-12 09:35:07 [MC-Thread      ] [DEBUG] [MC Sim]: Loop start, sleeping...
+2025-11-12 09:35:12 [MC-Thread      ] [DEBUG] [MC]: Waking up to update controllers...
+2025-11-12 09:35:12 [MC-Thread      ] [INFO ] [MC]: LCs updated: None
+2025-11-12 09:35:12 [MC-Thread      ] [INFO ] [MC]: OC updated: None
+2025-11-12 09:35:12 [MC-Thread      ] [DEBUG] [MC Sim]: Loop start, sleeping...
+2025-11-12 09:35:17 [MC-Thread      ] [DEBUG] [MC]: Waking up to update controllers...
+2025-11-12 09:35:17 [MC-Thread      ] [INFO ] [MC]: LCs updated: None
+2025-11-12 09:35:17 [MC-Thread      ] [INFO ] [MC]: OC updated: None
+2025-11-12 09:35:17 [MC-Thread      ] [DEBUG] [MC Sim]: Loop start, sleeping...
+2025-11-12 09:35:22 [MC-Thread      ] [DEBUG] [MC]: Waking up to update controllers...
+2025-11-12 09:35:22 [MC-Thread      ] [INFO ] [MC]: LCs updated: None
+2025-11-12 09:35:22 [MC-Thread      ] [INFO ] [MC]: OC updated: None
+2025-11-12 09:35:22 [MC-Thread      ] [DEBUG] [MC Sim]: Loop start, sleeping...
+2025-11-12 09:35:27 [MC-Thread      ] [DEBUG] [MC]: Waking up to update controllers...
+2025-11-12 09:35:27 [MC-Thread      ] [INFO ] [MC]: LCs updated: None
+2025-11-12 09:35:27 [MC-Thread      ] [INFO ] [MC]: OC updated: None
+2025-11-12 09:35:27 [MC-Thread      ] [DEBUG] [MC Sim]: Loop start, sleeping...
+2025-11-12 09:35:32 [MC-Thread      ] [DEBUG] [MC]: Waking up to update controllers...
+2025-11-12 09:35:32 [MC-Thread      ] [INFO ] [MC]: LCs updated: None
+2025-11-12 09:35:32 [MC-Thread      ] [INFO ] [MC]: OC updated: None
+2025-11-12 09:35:32 [MC-Thread      ] [DEBUG] [MC Sim]: Loop start, sleeping...

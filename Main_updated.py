@@ -1,6 +1,6 @@
 # osar_gui.py
 # A graphical user interface for the OSAR simulation.
-# --- ENHANCED with professional plotting, node labels, interactive hover tooltips, PDR, and Overhead Ratio ---
+# --- CORRECTED with realistic single-attempt PDR logic ---
 
 import tkinter as tk
 from tkinter import ttk, scrolledtext
@@ -21,7 +21,7 @@ DEFAULT_PT_DB = 150.0 # Default transmit power in dB re uPa [cite: 291]
 AREA = 500.0
 TX_RANGE = 250.0
 P_BUSY = 0.7
-N_NODES = 30 # Reduced for better label visibility by default
+N_NODES = 30 # Default node count
 M_SUBCARRIERS = 128
 DEFAULT_M_CHANNELS = 5
 START_FREQ_KHZ = 10
@@ -123,10 +123,6 @@ def select_best_next_hop(src, nodes, dest_pos, tx_range, channels, lp, bw, pt):
 
 # ---------- Main GUI Application ----------
 class SimulationApp:
-    """
-    A GUI for visualizing the OSAR underwater routing simulation.
-    Includes interactive plotting features for node inspection.
-    """
     def __init__(self, root):
         self.root = root
         self.root.title("OSAR Underwater Routing Simulation")
@@ -135,8 +131,8 @@ class SimulationApp:
         self.sim_thread = None
         self.q = queue.Queue()
         self.radius_plot = None
-        self.sim_nodes = [] # To store node objects for hover info
-        self.sc = None      # To store the scatter plot artist
+        self.sim_nodes = []
+        self.sc = None
 
         self.create_widgets()
         self.init_hover_functionality()
@@ -186,7 +182,6 @@ class SimulationApp:
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
     def init_hover_functionality(self):
-        """Sets up the annotation box and connects the hover event."""
         self.annot = self.ax.annotate("", xy=(0,0), xytext=(20,20),
                                       textcoords="offset points",
                                       bbox=dict(boxstyle="round", fc="yellow", alpha=0.8),
@@ -195,7 +190,6 @@ class SimulationApp:
         self.fig.canvas.mpl_connect("motion_notify_event", self.hover)
 
     def update_annot(self, ind):
-        """Updates the annotation text and position for a selected node."""
         node_index = ind["ind"][0]
         node = self.sim_nodes[node_index]
         pos = self.sc.get_offsets()[node_index]
@@ -208,7 +202,6 @@ class SimulationApp:
         self.annot.get_bbox_patch().set_alpha(0.8)
 
     def hover(self, event):
-        """Handles mouse hover events to show/hide the annotation."""
         vis = self.annot.get_visible()
         if event.inaxes == self.ax:
             cont, ind = self.sc.contains(event)
@@ -222,16 +215,13 @@ class SimulationApp:
                     self.fig.canvas.draw_idle()
 
     def draw_tx_radius(self, center, radius):
-        """Helper function to draw the wireframe transmission radius."""
         if self.radius_plot:
             self.radius_plot.remove()
-
         u = np.linspace(0, 2 * np.pi, 20)
         v = np.linspace(0, np.pi, 20)
         x = radius * np.outer(np.cos(u), np.sin(v)) + center[0]
         y = radius * np.outer(np.sin(u), np.sin(v)) + center[1]
         z = radius * np.outer(np.ones(np.size(u)), np.cos(v)) + center[2]
-        
         self.radius_plot = self.ax.plot_wireframe(x, y, z, color='skyblue', alpha=0.3, linewidth=0.8)
         self.canvas.draw()
     
@@ -241,23 +231,17 @@ class SimulationApp:
 
     def start_simulation(self):
         if self.sim_thread and self.sim_thread.is_alive(): return
-        
         self.log_text.delete('1.0', tk.END)
         self.ax.clear()
-
         try:
             p = {key: float(var.get()) for key, var in self.params.items()}
-            # Cast integer params
             p["N_NODES"] = int(p["N_NODES"])
             p["M_CHANNELS"] = int(p["M_CHANNELS"])
             p["SEED"] = int(p["SEED"])
-            # Convert power from dB to linear for calculations
             p["PT_LINEAR"] = 10**(p["PT_DB"] / 10.0)
-
             self.sim_thread = threading.Thread(target=self.run_simulation_thread, args=(p,), daemon=True)
             self.sim_thread.start()
             self.run_button.config(state=tk.DISABLED)
-
         except ValueError:
             self.log("Error: Please enter valid numbers for all parameters.")
 
@@ -269,41 +253,30 @@ class SimulationApp:
                     self.log(data['message'])
                 elif data['type'] == 'plot_nodes':
                     self.ax.clear()
-                    self.radius_plot = None # Clear any old radius plot
-                    
+                    self.radius_plot = None
                     self.sim_nodes = data['nodes']
-                    
-                    # --- ENHANCED PLOTTING AESTHETICS ---
-                    # Plot all sensor nodes
                     self.sc = self.ax.scatter(data['pos'][:, 0], data['pos'][:, 1], data['pos'][:, 2], 
                                              c=data['depths'], cmap="viridis_r", s=50, alpha=0.9, 
                                              edgecolors='black', linewidth=0.6, label="Sensor Nodes")
-                    
-                    # Plot Source and Destination with higher visibility
                     self.ax.scatter(data['src'][0], data['src'][1], data['src'][2], 
                                     c='lime', s=180, marker="o", label="Source Node", 
                                     edgecolors='black', linewidth=1.2, depthshade=False)
                     self.ax.scatter(data['dest'][0], data['dest'][1], data['dest'][2], 
                                     c="red", s=180, marker="^", label="Surface Buoy", 
                                     edgecolors='black', linewidth=1.2, depthshade=False)
-                    
-                    # Add static node labels if the count is manageable
                     if len(self.sim_nodes) <= 40:
                         for node in self.sim_nodes:
                             self.ax.text(node.pos[0], node.pos[1], node.pos[2], f' {node.node_id}', 
                                          color='black', fontsize=8, zorder=10)
-                    
-                    # --- AXIS AND TITLE STYLING ---
                     self.ax.set_xlabel("X (m)", fontweight='bold')
                     self.ax.set_ylabel("Y (m)", fontweight='bold')
                     self.ax.set_zlabel("Depth (m)", fontweight='bold')
                     self.ax.set_title("OSAR Underwater Network Topology", fontsize=14, fontweight='bold')
                     self.ax.invert_zaxis()
                     self.ax.legend(loc='upper left')
-                    self.ax.view_init(elev=25, azim=-75) # A good default viewing angle
+                    self.ax.view_init(elev=25, azim=-75)
                     self.fig.tight_layout()
                     self.canvas.draw()
-                    
                 elif data['type'] == 'plot_route':
                     route_pos = np.array(data['route_pos'])
                     self.ax.plot(route_pos[:, 0], route_pos[:, 1], route_pos[:, 2], 
@@ -345,7 +318,7 @@ class SimulationApp:
         
         self.q.put({
             'type': 'plot_nodes', 
-            'nodes': nodes, # Pass the full node objects for hover info
+            'nodes': nodes,
             'pos': np.array([n.pos for n in nodes]),
             'depths': [n.depth for n in nodes],
             'src': src.pos,
@@ -355,52 +328,40 @@ class SimulationApp:
 
         route, current = [src.node_id], src
         total_delay, visited_pos = 0.0, [current.pos]
-        
-        # --- Metrics Initialization ---
         packets_generated = 1
         packets_delivered = 0
         
+        # Main simulation loop for a single packet's journey
         while True:
+            # Re-randomize channel states for each hop attempt to simulate dynamic environment
             for node in nodes: node.channel_state = rng.random(M_SUBCARRIERS) < p['P_BUSY']
             
-            # Show radius of the current forwarding node
             self.q.put({'type': 'draw_radius', 'pos': current.pos, 'radius': p['TX_RANGE']})
-            time.sleep(0.75) # Pause to make radius visible
+            time.sleep(0.75)
             
+            # --- CORRECTED LOGIC: Single attempt to find the next hop ---
             best_nbr, TD, ch, snr_lin = select_best_next_hop(current, nodes, dest_pos, p['TX_RANGE'], channels_khz, LP, CH_BANDWIDTH, p['PT_LINEAR'])
             
-            attempt = 0
-            while best_nbr is None:
-                attempt += 1; self.q.put({'type': 'log', 'message': f"🔄 Attempt {attempt}: Re-sensing..."})
-                time.sleep(0.2)
-                for n in nodes: n.channel_state = rng.random(M_SUBCARRIERS) < p['P_BUSY']
-                best_nbr, TD, ch, snr_lin = select_best_next_hop(current, nodes, dest_pos, p['TX_RANGE'], channels_khz, LP, CH_BANDWIDTH, p['PT_LINEAR'])
-                if attempt > 20:
-                    self.q.put({'type': 'log', 'message': f"⚠️ Node {current.node_id} is stuck. Aborting."})
-                    packets_delivered = 0 # Failed to deliver
-                    # --- Final Stats on Failure ---
-                    self.q.put({'type': 'log', 'message': "\n--- Simulation Stats ---"})
-                    pdr = packets_delivered / packets_generated
-                    self.q.put({'type': 'log', 'message': f"Packet Delivery Ratio (PDR): {pdr:.0%}"})
-                    
-                    num_hops = len(route) - 1
-                    num_control_packets = p['N_NODES']  # Periodic beacons from all nodes
-                    num_data_packets = num_hops
-                    total_packets = num_control_packets + num_data_packets
-                    overhead_ratio = num_control_packets / total_packets if total_packets > 0 else 0
-                    self.q.put({'type': 'log', 'message': f"Overhead Ratio: {overhead_ratio:.4f}"})
-                    
-                    self.q.put({'type': 'finished'}); return
+            # If no forwarder is found in this single attempt, the packet is dropped.
+            if best_nbr is None:
+                self.q.put({'type': 'log', 'message': f"⚠️ Node {current.node_id} found no forwarder. Packet dropped."})
+                packets_delivered = 0 # This remains 0, confirming failure
+                break # Exit the routing loop immediately
 
-            total_delay += TD; route.append(best_nbr.node_id); visited_pos.append(best_nbr.pos)
+            # If a forwarder is found, proceed with the hop.
+            total_delay += TD
+            route.append(best_nbr.node_id)
+            visited_pos.append(best_nbr.pos)
             log_msg = f"→ {best_nbr.node_id} | D={best_nbr.depth:.1f}m | TD={TD:.4f}s | SNR={10*np.log10(snr_lin+EPS):.1f}dB"
             self.q.put({'type': 'log', 'message': log_msg})
             self.q.put({'type': 'plot_route', 'route_pos': visited_pos})
             current = best_nbr
 
+            # Check if the destination is within reach.
             if distance(current.pos, dest_pos) < p['TX_RANGE'] or current.depth <= 5.0:
                 self.q.put({'type': 'draw_radius', 'pos': current.pos, 'radius': p['TX_RANGE']})
                 time.sleep(0.75)
+                
                 buoy_node = Node(node_id='Buoy', pos=dest_pos, channel_state=np.array([False]*M_SUBCARRIERS))
                 best_final_td, _, best_final_snr = float('inf'), -1, 0
                 idle_idxs = np.where(~current.channel_state)[0]
@@ -410,28 +371,32 @@ class SimulationApp:
                     final_td, _, final_snr = compute_transmission_delay_paper(current, buoy_node, dest_pos, channels_khz[ch_idx], LP, CH_BANDWIDTH, p['PT_LINEAR'])
                     if final_td < best_final_td: best_final_td, _, best_final_snr = final_td, ch_idx, final_snr
                 
-                total_delay += best_final_td; route.append("Buoy"); visited_pos.append(dest_pos)
+                total_delay += best_final_td
+                route.append("Buoy")
+                visited_pos.append(dest_pos)
                 final_log = f"→ Buoy | D=0.0m | TD={best_final_td:.4f}s | SNR={10*np.log10(best_final_snr+EPS):.1f}dB"
                 self.q.put({'type': 'log', 'message': final_log})
                 self.q.put({'type': 'plot_route', 'route_pos': visited_pos})
                 self.q.put({'type': 'log', 'message': "\n✅ Reached surface buoy!"})
-                packets_delivered = 1 # Successfully delivered
-                break
+                packets_delivered = 1 # Success
+                break # Exit the routing loop
         
-        self.q.put({'type': 'log', 'message': f"\nFinal Route: {' → '.join(map(str, route))}"})
-        self.q.put({'type': 'log', 'message': f"Total Delay: {total_delay:.4f} s"})
-
         # --- Final Performance Metrics Calculation and Logging ---
         self.q.put({'type': 'log', 'message': "\n--- Simulation Stats ---"})
         
+        # This part of the log will only show for successful runs
+        if packets_delivered > 0:
+            self.q.put({'type': 'log', 'message': f"Final Route: {' → '.join(map(str, route))}"})
+            self.q.put({'type': 'log', 'message': f"Total Delay: {total_delay:.4f} s"})
+
         # PDR Calculation
         pdr = packets_delivered / packets_generated
         self.q.put({'type': 'log', 'message': f"Packet Delivery Ratio (PDR): {pdr:.0%}"})
         
         # Overhead Ratio Calculation
-        num_hops = len(route) - 1
-        num_control_packets = p['N_NODES']  # Assumption: 1 periodic beacon per node
-        num_data_packets = num_hops         # The data packet is transmitted over each hop
+        num_hops = max(len(route) - 1, 0)
+        num_control_packets = p['N_NODES']
+        num_data_packets = num_hops
         total_packets_transmitted = num_control_packets + num_data_packets
         overhead_ratio = num_control_packets / total_packets_transmitted if total_packets_transmitted > 0 else 0
         self.q.put({'type': 'log', 'message': f"Overhead Ratio: {overhead_ratio:.4f} (Control: {num_control_packets}, Data: {num_data_packets})"})

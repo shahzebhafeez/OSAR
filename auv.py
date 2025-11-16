@@ -1,6 +1,8 @@
 # auv.py
 # A complete, self-contained GUI simulation for AUV path mapping,
 # visualization, and data logging with CSV export.
+#
+# --- FIX v2: Efficient plotting and Run/Stop toggle button ---
 
 import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog
@@ -78,8 +80,8 @@ class AUV:
         self.data_buffer = {}
         self.relayed_data_log = {}
         
-        self.path_artist = None
-        self.marker_artist = None
+        # --- MODIFIED: Removed artists from here, they will be managed by GUI ---
+        
         self.rng = np.random.default_rng()
 
         self.battery = 100.0
@@ -107,6 +109,7 @@ class AUV:
         relayed_node_ids_this_tick = None
         is_moving = True
 
+        # --- Battery & State Logic ---
         self.battery -= BATTERY_DEPLETION_RATE * (self.speed / AUV_MAX_SPEED) * dt
         self.battery = max(0, self.battery)
 
@@ -118,10 +121,11 @@ class AUV:
             self.state = "Patrolling"
             self.target_waypoint_idx = 1 # Reset patrol route
 
+        # --- Movement Logic ---
         target_pos = None
         if self.state == "Patrolling":
             if self.target_waypoint_idx >= len(self.route):
-                self.target_waypoint_idx = 1
+                self.target_waypoint_idx = 1 # Loop route
             target_pos = np.array(self.route[self.target_waypoint_idx])
         elif self.state == "Returning to Charge":
             target_pos = self.recharge_pos
@@ -138,8 +142,12 @@ class AUV:
                     self.target_waypoint_idx += 1
             else:
                 move_dist = self.speed * dt
+                # Clamp move_dist to not overshoot the target
+                move_dist = min(move_dist, dist_to_target) 
+                
                 move_vec = (direction / dist_to_target) * move_dist
                 
+                # Apply a small, random perpendicular drift
                 drift_factor = 0.4
                 drift_vec = self.rng.uniform(-1, 1, 3) * move_dist * drift_factor
                 unit_direction = direction / dist_to_target
@@ -147,20 +155,24 @@ class AUV:
                 
                 self.current_pos += move_vec + drift_vec
         
+        # --- Update Path History ---
         self.traveled_path.append(np.copy(self.current_pos))
-        if len(self.traveled_path) > 500:
+        if len(self.traveled_path) > 500: # Keep path history to 500 points
             self.traveled_path.pop(0)
 
+        # --- Data Collection & Relay Logic ---
+        collected_new_data_flag = False
         for node in nodes:
             if distance(self.current_pos, node.pos) <= self.coverage_radius:
                 if node.node_id not in self.covered_nodes:
                     self.covered_nodes.add(node.node_id)
-                self.collect_data(node.node_id)
+                if self.collect_data(node.node_id):
+                    collected_new_data_flag = True
 
         if distance(self.current_pos, self.surface_station_pos) <= self.relay_radius:
             relayed_node_ids_this_tick = self.relay_data()
 
-        return relayed_node_ids_this_tick, is_moving
+        return relayed_node_ids_this_tick, is_moving, collected_new_data_flag
 
 # ==============================================================================
 # SECTION 2: GUI APPLICATION AND SIMULATION CONTROL
@@ -206,10 +218,14 @@ class SimulationApp:
         self.q = queue.Queue()
         self.sim_nodes = []
         self.auvs = []
-        self.sc = None
+        self.sc_nodes = None # Scatter plot for NODES
+        self.auv_artists = {} # MODIFIED: Dictionary to hold AUV artists
         self.simulation_log_data = []
         self.create_widgets()
         self.process_queue()
+        
+        # --- NEW: Add graceful exit ---
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def create_widgets(self):
         main_frame = ttk.Frame(self.root, padding="10")
@@ -231,15 +247,16 @@ class SimulationApp:
             self.params[key] = tk.StringVar(value=str(val))
             ttk.Entry(controls_frame, textvariable=self.params[key], width=10).grid(row=i, column=1, sticky=tk.W, pady=2)
         
-        self.run_button = ttk.Button(left_panel, text="Run AUV Simulation (1 hour)", command=self.start_simulation)
-        self.run_button.pack(fill=tk.X, pady=5)
+        # --- MODIFIED: Changed to toggle button ---
+        self.toggle_run_button = ttk.Button(left_panel, text="Run AUV Simulation", command=self.toggle_simulation)
+        self.toggle_run_button.pack(fill=tk.X, pady=5)
         
         self.export_button = ttk.Button(left_panel, text="Export Log to CSV", command=self.export_log_to_csv, state=tk.DISABLED)
         self.export_button.pack(fill=tk.X, pady=5)
 
         log_frame = ttk.LabelFrame(left_panel, text="AUV Data Logger", padding="10")
         log_frame.pack(fill=tk.BOTH, expand=True)
-        self.log_text = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, width=40, height=20)
+        self.log_text = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, width=40, height=20, font=("Consolas", 9))
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
         plot_frame = ttk.Frame(main_frame)
@@ -250,32 +267,60 @@ class SimulationApp:
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
     def log(self, message):
-        self.log_text.insert(tk.END, message + "\n")
-        self.log_text.see(tk.END)
+        """Thread-safe logging to the GUI."""
+        self.q.put({'type': 'log', 'message': message})
+
+    # --- NEW: Toggle and Stop functions ---
+    def is_simulation_running(self):
+        return self.sim_thread and self.sim_thread.is_alive()
+
+    def toggle_simulation(self):
+        if self.is_simulation_running():
+            self.stop_simulation()
+        else:
+            self.start_simulation()
+
+    def stop_simulation(self):
+        if self.is_simulation_running():
+            self.log("--- SIMULATION STOP REQUESTED BY USER ---")
+            self.simulation_running.clear()  # Signal thread to stop
+            self.toggle_run_button.config(text="Stopping...", state=tk.DISABLED)
+    # --- End of New Functions ---
 
     def start_simulation(self):
-        if self.sim_thread and self.sim_thread.is_alive(): return
+        if self.is_simulation_running(): return
+        
         self.log_text.delete('1.0', tk.END)
+        self.log("--- New AUV Simulation Run Started ---")
+        
+        # Clear plots and artists
         self.fig.clear()
         self.ax = self.fig.add_subplot(111, projection="3d")
+        self.auv_artists.clear()
+        self.sc_nodes = None
+        
         self.simulation_log_data.clear()
         self.export_button.config(state=tk.DISABLED)
         self.auvs.clear()
         self.sim_nodes.clear()
+        
         try:
             p = {key: float(var.get()) for key, var in self.params.items()}
             p["N_NODES"] = int(p["N_NODES"])
             p["NUM_AUVS"] = int(p["NUM_AUVS"])
             p["SEED"] = int(p["SEED"])
             p['SURFACE_STATION_POS'] = np.array([p['AREA']/2, p['AREA']/2, 0.0])
+            
             self.simulation_running.set()
-            self.sim_thread = threading.Thread(target=self.run_auv_thread, args=(p,), daemon=True)
+            self.sim_thread = threading.Thread(target=self.run_auv_thread, args=(p,), daemon=True, name="SimThread")
             self.sim_thread.start()
-            self.run_button.config(state=tk.DISABLED)
+            
+            self.toggle_run_button.config(text="Stop Simulation", state=tk.NORMAL)
+            
         except ValueError: self.log("Error: Please enter valid numbers.")
         except Exception as e:
             self.log(f"Error: {e}")
-            self.run_button.config(state=tk.NORMAL)
+            self.toggle_run_button.config(text="Run AUV Simulation", state=tk.NORMAL)
 
     def process_queue(self):
         try:
@@ -283,6 +328,10 @@ class SimulationApp:
                 data = self.q.get_nowait()
                 if data['type'] == 'log': self.log(data['message'])
                 elif data['type'] == 'plot_initial': self.plot_initial_setup(data['nodes_pos'], data['buoy_pos'], data['area'])
+                
+                # --- NEW: Handler for setting up AUV artists ---
+                elif data['type'] == 'setup_auv_plots': self.setup_auv_plots(data['num_auvs'])
+                
                 elif data['type'] == 'update_nodes': self.update_node_plots(data['nodes_pos'])
                 elif data['type'] == 'plot_auvs': self.update_auv_plots(data['auv_indices'])
                 elif data['type'] == 'finished':
@@ -290,26 +339,33 @@ class SimulationApp:
                     self.log("\n--- AUV Simulation Finished ---")
                     if self.simulation_log_data:
                         self.export_button.config(state=tk.NORMAL)
+                    
         except queue.Empty: pass
         except Exception as e:
             print(f"Error in process_queue: {e}")
+            # traceback.print_exc()
             self.log(f"Error processing GUI updates: {e}")
             self.simulation_running.clear()
 
-        sim_alive = self.sim_thread and self.sim_thread.is_alive()
-        if not (self.simulation_running.is_set() or sim_alive):
-            if self.run_button['state'] != tk.NORMAL:
-                self.run_button.config(state=tk.NORMAL)
+        # --- MODIFIED: Cleanup logic ---
+        if not self.is_simulation_running():
+            if self.toggle_run_button['state'] != tk.NORMAL:
+                self.toggle_run_button.config(text="Run AUV Simulation", state=tk.NORMAL)
+                if self.simulation_log_data:
+                    self.export_button.config(state=tk.NORMAL)
+        
         self.root.after(100, self.process_queue)
+        # --- End of Change ---
 
     def plot_initial_setup(self, nodes_pos, buoy_pos, area):
         if nodes_pos.any():
-            self.sc = self.ax.scatter(nodes_pos[:, 0], nodes_pos[:, 1], nodes_pos[:, 2],
-                                      c=nodes_pos[:, 2], cmap="viridis_r", s=50, alpha=0.9,
-                                      edgecolors='black', linewidth=0.6, label="Sensor Nodes")
+            self.sc_nodes = self.ax.scatter(nodes_pos[:, 0], nodes_pos[:, 1], nodes_pos[:, 2],
+                                         c=nodes_pos[:, 2], cmap="viridis_r", s=50, alpha=0.9,
+                                         edgecolors='black', linewidth=0.6, label="Sensor Nodes")
         self.ax.scatter(buoy_pos[0], buoy_pos[1], buoy_pos[2], c="red", s=180, marker="^",
                         label="Surface Buoy", edgecolors='black', linewidth=1.2, depthshade=False)
         self.ax.scatter([], [], [], c='magenta', s=250, marker='X', label="AUV")
+        
         self.ax.set_xlabel("X (m)", fontweight='bold')
         self.ax.set_ylabel("Y (m)", fontweight='bold')
         self.ax.set_zlabel("Depth (m)", fontweight='bold')
@@ -325,37 +381,70 @@ class SimulationApp:
 
     def update_node_plots(self, nodes_pos):
         """Efficiently updates the positions of the node scatter plot."""
-        if self.sc and len(nodes_pos) > 0:
-            self.sc._offsets3d = (nodes_pos[:, 0], nodes_pos[:, 1], nodes_pos[:, 2])
-            self.fig.canvas.draw_idle()
+        if self.sc_nodes and len(nodes_pos) > 0:
+            # Note: _offsets3d is the "private" but standard way to update 3D scatter
+            self.sc_nodes._offsets3d = (nodes_pos[:, 0], nodes_pos[:, 1], nodes_pos[:, 2])
+            # self.fig.canvas.draw_idle() # Not needed, update_auv_plots will draw
 
+    # --- NEW: Creates AUV artists once for speed ---
+    def setup_auv_plots(self, num_auvs):
+        """Creates the plot artists for each AUV one time."""
+        self.auv_artists.clear()
+        for i in range(num_auvs):
+            # Create one artist for the path (a line)
+            path_line, = self.ax.plot([], [], [], 
+                                      color='magenta', linestyle=':', 
+                                      linewidth=1.5, zorder=9, alpha=0.7)
+            
+            # --- THIS IS THE FIX ---
+            # Changed 'c=' to 'color=' and 's=250' to 'markersize=15'
+            marker_point, = self.ax.plot([], [], [], 
+                                         color='magenta', markersize=15, marker='X',
+                                         zorder=10, markeredgecolor='black')
+            # --- End of Fix ---
+            
+            self.auv_artists[i] = {
+                'path': path_line,
+                'marker': marker_point
+            }
+        self.fig.canvas.draw_idle()
+
+    # --- MODIFIED: Efficiently updates artist data, no re-plotting ---
     def update_auv_plots(self, auv_indices):
+        """Efficiently updates the data for existing AUV plot artists."""
         for idx in auv_indices:
-            if idx < len(self.auvs):
+            if idx in self.auv_artists and idx < len(self.auvs):
                 auv = self.auvs[idx]
-                if auv.path_artist:
-                    try: auv.path_artist.remove()
-                    except ValueError: pass
-                if auv.marker_artist:
-                    try: auv.marker_artist.remove()
-                    except ValueError: pass
+                artists = self.auv_artists[idx]
+                
+                # 1. Update Path
                 path_data = np.array(auv.traveled_path)
                 if path_data.shape[0] > 1:
-                    lines = self.ax.plot(path_data[:, 0], path_data[:, 1], path_data[:, 2],
-                                         color='magenta', linestyle=':', linewidth=1.5, zorder=9, alpha=0.7)
-                    auv.path_artist = lines[0]
+                    artists['path'].set_data_3d(path_data[:, 0], path_data[:, 1], path_data[:, 2])
+                
+                # 2. Update Marker
                 pos = auv.current_pos
-                auv.marker_artist = self.ax.scatter(pos[0], pos[1], pos[2], c='magenta', s=250, marker='X',
-                                                    depthshade=False, zorder=10, edgecolors='black')
+                artists['marker'].set_data_3d([pos[0]], [pos[1]], [pos[2]])
+                
+                # 3. Update Colors based on state
+                color = 'magenta'
+                if auv.state == "Returning to Charge":
+                    color = 'orange'
+                
+                artists['path'].set_color(color)
+                artists['marker'].set_color(color) # 'c=' is an alias for 'color'
+                
+        # Draw all changes at once
         self.fig.canvas.draw_idle()
+    # --- End of Change ---
 
     def export_log_to_csv(self):
         if not self.simulation_log_data:
             self.log("No data to export.")
             return
         filepath = filedialog.asksaveasfilename(defaultextension=".csv",
-                                                 filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-                                                 title="Save AUV Log As...")
+                                                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+                                                title="Save AUV Log As...")
         if not filepath: return
         
         headers = ['Timestamp', 'AUV_ID', 'Speed_m/s', 'Position_X', 'Position_Y', 'Position_Z', 
@@ -389,6 +478,10 @@ class SimulationApp:
                 local_auv_list.append(auv)
                 self.q.put({'type': 'log', 'message': f"[AUV {i}]: Created. Speed: {speed:.1f} m/s, Radius: {auv.coverage_radius} m"})
             self.auvs = local_auv_list
+            
+            # --- NEW: Send message to create AUV plot artists ---
+            self.q.put({'type': 'setup_auv_plots', 'num_auvs': len(local_auv_list)})
+            # --- End of Change ---
 
             last_log_time = time.time()
             last_speed_change_time = {auv.id: time.time() for auv in local_auv_list}
@@ -401,13 +494,15 @@ class SimulationApp:
                 for idx, auv in enumerate(local_auv_list):
                     if current_time - last_speed_change_time[auv.id] > rng.uniform(15, 30):
                         auv.speed = rng.uniform(AUV_MIN_SPEED, AUV_MAX_SPEED)
-                        self.q.put({'type': 'log', 'message': f"[AUV {auv.id}]: Speed changed to {auv.speed:.1f} m/s"})
+                        self.log(f"[AUV {auv.id}]: Speed changed to {auv.speed:.1f} m/s")
                         last_speed_change_time[auv.id] = current_time
 
-                    relayed_ids, _ = auv.update(AUV_UPDATE_INTERVAL_S, self.sim_nodes)
+                    relayed_ids, _, collected_new = auv.update(AUV_UPDATE_INTERVAL_S, self.sim_nodes)
 
                     if relayed_ids:
-                        self.q.put({'type': 'log', 'message': f"[AUV {auv.id}]: Relayed data for nodes {relayed_ids}."})
+                        self.log(f"[AUV {auv.id}]: Relayed data for nodes {relayed_ids}.")
+                    if collected_new:
+                        self.log(f"[AUV {auv.id}]: Collected new data from node(s).")
                     
                     updated_indices.append(idx)
                 
@@ -422,15 +517,15 @@ class SimulationApp:
                                      f"{auv.battery:.1f}", auv.state, nodes_str]
                         self.simulation_log_data.append(log_entry)
                         
-                        if auv.state == "Patrolling" and auv.battery < LOW_BATTERY_THRESHOLD:
-                            self.q.put({'type': 'log', 'message': f"[AUV {auv.id}]: Low battery! Returning to charge."})
-                        elif auv.state == "Patrolling" and auv.battery == 100.0:
-                             # This logic is now handled when the state flips back to Patrolling
-                             self.q.put({'type': 'log', 'message': f"[AUV {auv.id}]: Recharged. Resuming patrol."})
-
+                        if auv.state == "Returning to Charge" and auv.battery < LOW_BATTERY_THRESHOLD:
+                             # This check is redundant, but good for logging once
+                             pass # The log will happen when state *flips*
+                        elif auv.state == "Patrolling" and auv.battery == 100.0 and (current_time - last_speed_change_time[auv.id] < 1.5):
+                             # Log recharge
+                             self.log(f"[AUV {auv.id}]: Recharged. Resuming patrol.")
+                             
                     last_log_time = current_time
                 
-                # --- NEW: Update Node Positions and send for plotting ---
                 if current_time - last_node_update_time >= 1.0:
                     for node in self.sim_nodes:
                         node.update_position(NODE_MAX_DRIFT_M)
@@ -442,24 +537,38 @@ class SimulationApp:
                     self.q.put({'type': 'plot_auvs', 'auv_indices': updated_indices})
                 
                 time.sleep(AUV_UPDATE_INTERVAL_S)
+            
+            if not self.simulation_running.is_set():
+                self.log("[Sim]: Simulation stopped by user.")
 
         except Exception as e:
             print(f"[Sim Thread] Error: {e}")
-            self.q.put({'type': 'log', 'message': f"[Sim] Error: {e}"})
+            # traceback.print_exc()
+            self.log(f"[Sim] Error: {e}")
         finally:
-            self.q.put({'type': 'log', 'message': "\n--- AUV FINAL STATS ---"})
+            self.log("\n--- AUV FINAL STATS ---")
             if self.auvs:
                 for auv in self.auvs:
-                    self.q.put({'type': 'log', 'message': f"--- AUV {auv.id} Report ---"})
-                    self.q.put({'type': 'log', 'message': f"  Nodes Detected: {sorted(list(auv.covered_nodes)) or 'None'}"})
+                    self.log(f"--- AUV {auv.id} Report ---")
+                    self.log(f"  Nodes Detected: {sorted(list(auv.covered_nodes)) or 'None'}")
                     relayed = sorted(list(auv.relayed_data_log.keys()))
-                    self.q.put({'type': 'log', 'message': f"  Data Relayed (IDs): {relayed or 'None'}"})
+                    self.log(f"  Data Relayed (IDs): {relayed or 'None'}")
             
             self.q.put({'type': 'finished'})
             print("[Sim Thread] Finished.")
+            
+    # --- NEW: Graceful exit handler ---
+    def on_closing(self):
+        print("--- Application Closing ---")
+        if self.is_simulation_running():
+            print("Attempting to stop threads...")
+            self.stop_simulation() # Signal threads to stop
+            self.root.destroy() # Close window
+        else:
+            self.root.destroy()
 
 if __name__ == "__main__":
+    threading.current_thread().name = 'Main-GUI' # Name the main thread
     root = tk.Tk()
     app = SimulationApp(root)
     root.mainloop()
-

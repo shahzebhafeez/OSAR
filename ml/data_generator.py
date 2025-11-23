@@ -14,7 +14,7 @@ if project_root not in sys.path:
 import numpy as np
 import pandas as pd
 import time
-from auv2 import AUV, generate_auv_route, distance, AUV_MIN_SPEED, AUV_MAX_SPEED, AUV_WAYPOINTS
+from auv import AUV, generate_auv_route, distance, AUV_MIN_SPEED, AUV_MAX_SPEED, AUV_WAYPOINTS
 
 # --- Simulation Parameters ---
 # --- CHANGED: Run for 10 minutes (10 / 60.0 hours) ---

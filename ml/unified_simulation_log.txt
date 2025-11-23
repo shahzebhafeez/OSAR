@@ -1,37 +1,14 @@
-2025-11-15 15:00:35 [Main-GUI           ] [INFO ] Logging configured. Log file: d:\OSAR\ml\unified_simulation_log.txt
-2025-11-15 15:00:35 [Main-GUI           ] [INFO ] Attempting to load models from: d:\OSAR
-2025-11-15 15:00:35 [Main-GUI           ] [INFO ] Successfully loaded all SVM models and scalers.
-2025-11-15 15:00:41 [Main-GUI           ] [INFO ] --- New AUV Sweep Run Started ---
-2025-11-15 15:00:41 [Sweep-Orchestrator ] [INFO ] --- Starting AUV Sweep (1 to 3 AUVs) ---
-2025-11-15 15:00:41 [Sweep-Orchestrator ] [INFO ] 
---- EXPERIMENT: Running for 1 AUV(s) ---
-2025-11-15 15:00:46 [MC-Sweep-1         ] [DEBUG] [MC]: Waking up to update controllers...
-2025-11-15 15:00:46 [MC-Sweep-1         ] [INFO ] [MC]: LCs updated: None
-2025-11-15 15:00:46 [MC-Sweep-1         ] [INFO ] [MC]: OC updated: None
-2025-11-15 15:00:46 [Main-GUI           ] [DEBUG] [Queue]: OSAR results received.
-2025-11-15 15:00:46 [Main-GUI           ] [DEBUG] [Queue]: AUV results received.
-2025-11-15 15:00:46 [Sweep-Orchestrator ] [INFO ]   -> Results: PDR=0.100, RoR=0.281, ECR=0.999
-2025-11-15 15:00:46 [Sweep-Orchestrator ] [INFO ] 
---- EXPERIMENT: Running for 2 AUV(s) ---
-2025-11-15 15:00:51 [Main-GUI           ] [DEBUG] [Queue]: OSAR results received.
-2025-11-15 15:00:51 [Main-GUI           ] [DEBUG] [Queue]: AUV results received.
-2025-11-15 15:00:52 [Sweep-Orchestrator ] [INFO ]   -> Results: PDR=0.300, RoR=0.226, ECR=0.999
-2025-11-15 15:00:52 [Sweep-Orchestrator ] [INFO ] 
---- EXPERIMENT: Running for 3 AUV(s) ---
-2025-11-15 15:00:57 [MC-Sweep-3         ] [DEBUG] [MC]: Waking up to update controllers...
-2025-11-15 15:00:57 [MC-Sweep-3         ] [INFO ] [MC]: LCs updated: None
-2025-11-15 15:00:57 [MC-Sweep-3         ] [INFO ] [MC]: OC updated: None
-2025-11-15 15:00:57 [Main-GUI           ] [DEBUG] [Queue]: OSAR results received.
-2025-11-15 15:00:57 [Main-GUI           ] [DEBUG] [Queue]: AUV results received.
-2025-11-15 15:00:57 [Sweep-Orchestrator ] [INFO ]   -> Results: PDR=0.400, RoR=0.220, ECR=0.999
-2025-11-15 15:00:57 [Sweep-Orchestrator ] [INFO ] 
---- EXPERIMENT SWEEP FINISHED ---
-2025-11-15 15:00:57 [Sweep-Orchestrator ] [INFO ] [Sweep Thread] Finished.
-2025-11-15 15:00:57 [Main-GUI           ] [INFO ] 
-
---- FINAL SIMULATION STATS ---
-2025-11-15 15:00:57 [Main-GUI           ] [INFO ] Packet Delivery Ratio (PDR): 40.00% (4/10.0)
-2025-11-15 15:00:57 [Main-GUI           ] [INFO ] Overhead Ratio (RoR) (by bytes): 0.2195
-2025-11-15 15:00:57 [Main-GUI           ] [INFO ] Average End-to-End Delay (for delivered packets): 0.9133 s
-2025-11-15 15:00:57 [Main-GUI           ] [INFO ] Energy Cost Ratio (ECR): 0.9991
-2025-11-15 15:00:57 [Main-GUI           ] [INFO ]  (Energy_Data: 12,288, Energy_Control: 3,456, Energy_Movement: 14,400,000)
+18:50:49 [Main-GUI       ] --- Comparative Sweep Started ---
+18:50:49 [Sweep-Orch     ] === Sweeping 1 AUVs ===
+18:50:59 [Sweep-Orch     ] Completed 1 AUVs. Avg PDR (With): 91.00%
+18:50:59 [Sweep-Orch     ] === Sweeping 2 AUVs ===
+18:51:13 [Sweep-Orch     ] Completed 2 AUVs. Avg PDR (With): 92.00%
+18:51:13 [Sweep-Orch     ] === Sweeping 3 AUVs ===
+18:51:29 [Sweep-Orch     ] Completed 3 AUVs. Avg PDR (With): 92.00%
+18:51:29 [Sweep-Orch     ] === Sweeping 4 AUVs ===
+18:51:48 [Sweep-Orch     ] Completed 4 AUVs. Avg PDR (With): 93.50%
+18:51:48 [Sweep-Orch     ] === Sweeping 5 AUVs ===
+18:52:13 [Sweep-Orch     ] Completed 5 AUVs. Avg PDR (With): 94.00%
+18:52:13 [Sweep-Orch     ] === Sweeping 6 AUVs ===
+18:52:42 [Sweep-Orch     ] Completed 6 AUVs. Avg PDR (With): 93.00%
+18:52:42 [Sweep-Orch     ] Sweep Finished.

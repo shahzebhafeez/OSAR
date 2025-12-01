@@ -1,14 +1,8 @@
-18:50:49 [Main-GUI       ] --- Comparative Sweep Started ---
-18:50:49 [Sweep-Orch     ] === Sweeping 1 AUVs ===
-18:50:59 [Sweep-Orch     ] Completed 1 AUVs. Avg PDR (With): 91.00%
-18:50:59 [Sweep-Orch     ] === Sweeping 2 AUVs ===
-18:51:13 [Sweep-Orch     ] Completed 2 AUVs. Avg PDR (With): 92.00%
-18:51:13 [Sweep-Orch     ] === Sweeping 3 AUVs ===
-18:51:29 [Sweep-Orch     ] Completed 3 AUVs. Avg PDR (With): 92.00%
-18:51:29 [Sweep-Orch     ] === Sweeping 4 AUVs ===
-18:51:48 [Sweep-Orch     ] Completed 4 AUVs. Avg PDR (With): 93.50%
-18:51:48 [Sweep-Orch     ] === Sweeping 5 AUVs ===
-18:52:13 [Sweep-Orch     ] Completed 5 AUVs. Avg PDR (With): 94.00%
-18:52:13 [Sweep-Orch     ] === Sweeping 6 AUVs ===
-18:52:42 [Sweep-Orch     ] Completed 6 AUVs. Avg PDR (With): 93.00%
-18:52:42 [Sweep-Orch     ] Sweep Finished.
+20:35:55 [Main-GUI       ] --- Comparative Sweep Started ---
+20:35:55 [Sweep-Orch     ] --- Starting Robust Sweep (30x Trimmed Avg) ---
+20:35:55 [Sweep-Orch     ] Note: This will take longer but produce smoother graphs.
+20:35:55 [Sweep-Orch     ] Simulating Total Nodes: 23...
+20:44:09 [Sweep-Orch     ] Simulating Total Nodes: 33...
+21:01:12 [Sweep-Orch     ] Simulating Total Nodes: 43...
+21:32:00 [Sweep-Orch     ] Simulating Total Nodes: 53...
+22:11:35 [Sweep-Orch     ] Simulating Total Nodes: 63...

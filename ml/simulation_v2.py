@@ -1,8 +1,7 @@
-# unified_simulation.py
+#unified_simulation.py : # unified_simulation.py
 # A complete, merged GUI simulation for OSAR routing, AUV movement,
 # real-time ML classification (LC/OC), and COMPARATIVE metric calculation.
-# --- VERSION 23: Added GUI control for Node Drift.
-# --- Automatically disables drift for "Without LC/OC" baseline to ensure stability.
+# --- VERSION 28: Multi-Set Comparative Sweep (4 Sets: P_Busy, Coverage, Nodes, Packets)
 
 import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog
@@ -30,10 +29,12 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(script_dir)
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
+    
 # --- ML Imports ---
 ML_AVAILABLE = True
 try:
     from sklearn.svm import SVC
+    from sklearn.ensemble import RandomForestClassifier
     from sklearn.preprocessing import StandardScaler
     import joblib
 except Exception as e:
@@ -41,6 +42,7 @@ except Exception as e:
     ML_AVAILABLE = False
     joblib = None
 
+# --- Import AUV components (robust) ---
 AUV_AVAILABLE = True
 try:
     from auv import (AUV as BaseAUV, generate_auv_route, AUV_MIN_SPEED, AUV_MAX_SPEED,
@@ -70,7 +72,7 @@ LP = 512
 CONTROL_PACKET_LP = 64
 CH_BANDWIDTH = 6e3
 DEFAULT_PT_DB = 150.0
-P_BUSY = 0.5 # Lowered default for better connectivity
+P_BUSY = 0.5
 M_SUBCARRIERS = 128
 DEFAULT_M_CHANNELS = 5
 START_FREQ_KHZ = 10
@@ -80,7 +82,7 @@ DEFAULT_NUM_PACKETS = 10
 SVM_UPDATE_PERIOD_S = 5
 AUV_UPDATE_INTERVAL_S = 0.1
 SIMULATION_DURATION_S = 60*60
-NODE_MAX_DRIFT_M = 10.0 # Default value
+NODE_MAX_DRIFT_M = 10.0 
 AUV_COVERAGE_RADIUS = 125.0
 AUV_MIN_SPEED = 1.0
 AUV_MAX_SPEED = 5.0
@@ -120,113 +122,11 @@ K_SPREAD = 1.5
 def auv_distance(a, b):
     return np.linalg.norm(np.array(a) - np.array(b))
 
-def generate_auv_route(area, surface_buoy_pos, auv_id):
-    horizontal_offset = 125.0 * auv_id
-    start_pos = np.copy(surface_buoy_pos)
-    start_pos[0] += horizontal_offset
-    bottom_pos = np.copy(start_pos)
-    bottom_pos[2] = area
-    return np.array([start_pos, bottom_pos, start_pos])
-
-class AUV:
-    def __init__(self, id, speed, route, surface_station_pos,
-                 coverage_radius=AUV_COVERAGE_RADIUS,
-                 relay_radius=DEFAULT_AUV_RELAY_RADIUS):
-        self.id = id
-        self.speed = speed
-        self.route = route
-        self.surface_station_pos = np.array(surface_station_pos)
-        self.recharge_pos = np.copy(self.route[0])
-        self.coverage_radius = coverage_radius
-        self.relay_radius = relay_radius
-        
-        self.current_pos = np.array(self.route[0])
-        self.target_waypoint_idx = 1
-        
-        self.covered_nodes = set()
-        self.traveled_path = [np.array(self.route[0])]
-        self.data_buffer = {}
-        self.relayed_data_log = {}
-        
-        self.rng = np.random.default_rng()
-        self.battery = 100.0
-        self.state = "Patrolling"
-        
+class AUV(BaseAUV):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.is_lc = False
         self.is_oc = False
-
-    def collect_data(self, node_id):
-        if node_id not in self.data_buffer:
-            self.data_buffer[node_id] = time.time()
-            return True
-        return False
-
-    def relay_data(self):
-        if not self.data_buffer: return None
-        relayed_node_ids = list(self.data_buffer.keys())
-        for node_id in relayed_node_ids:
-            self.relayed_data_log[node_id] = time.time()
-        self.data_buffer.clear()
-        return relayed_node_ids
-
-    def update(self, dt, nodes):
-        relayed_node_ids_this_tick = None
-        is_moving = True
-
-        self.battery -= BATTERY_DEPLETION_RATE * (self.speed / AUV_MAX_SPEED) * dt
-        self.battery = max(0, self.battery)
-
-        if self.battery < LOW_BATTERY_THRESHOLD and self.state == "Patrolling":
-            self.state = "Returning to Charge"
-        
-        if self.state == "Returning to Charge" and auv_distance(self.current_pos, self.recharge_pos) < 5.0:
-            self.battery = 100.0
-            self.state = "Patrolling"
-            self.target_waypoint_idx = 1
-
-        target_pos = None
-        if self.state == "Patrolling":
-            if self.target_waypoint_idx >= len(self.route):
-                self.target_waypoint_idx = 1
-            target_pos = np.array(self.route[self.target_waypoint_idx])
-        elif self.state == "Returning to Charge":
-            target_pos = self.recharge_pos
-
-        if target_pos is None: is_moving = False
-        
-        if is_moving:
-            direction = target_pos - self.current_pos
-            dist_to_target = np.linalg.norm(direction)
-
-            if dist_to_target < 1.0:
-                if self.state == "Patrolling": self.target_waypoint_idx += 1
-            else:
-                move_dist = self.speed * dt
-                move_dist = min(move_dist, dist_to_target)
-                
-                move_vec = (direction / dist_to_target) * move_dist
-                drift_factor = 0.4
-                drift_vec = self.rng.uniform(-1, 1, 3) * move_dist * drift_factor
-                unit_direction = direction / dist_to_target
-                drift_vec -= np.dot(drift_vec, unit_direction) * unit_direction
-                
-                self.current_pos += move_vec + drift_vec
-        
-        self.traveled_path.append(np.copy(self.current_pos))
-        if len(self.traveled_path) > 500: self.traveled_path.pop(0)
-
-        collected_new_data_flag = False
-        for node in nodes:
-            if auv_distance(self.current_pos, node.pos) <= self.coverage_radius:
-                if node.node_id not in self.covered_nodes:
-                    self.covered_nodes.add(node.node_id)
-                if self.collect_data(node.node_id):
-                    collected_new_data_flag = True
-
-        if auv_distance(self.current_pos, self.surface_station_pos) <= self.relay_radius:
-            relayed_node_ids_this_tick = self.relay_data()
-
-        return relayed_node_ids_this_tick, is_moving, collected_new_data_flag
 
 # ==============================================================================
 # SECTION 3: ACOUSTIC & ROUTING CORE LOGIC
@@ -388,7 +288,6 @@ def select_best_next_hop(src, nodes, auvs, dest_pos, tx_range, channels, lp, bw,
     
     for (obj, td, en, is_auv) in candidates:
         cost = (W_time * (td/max_td)) + (W_energy * (en/max_en))
-        # --- FORCED PRIORITY for AUVs to ensure they are used ---
         if is_auv: cost = cost / 100.0 
 
         if cost < min_cost:
@@ -435,8 +334,11 @@ class SimulationApp:
         self.logger = None 
         self.setup_logging()
 
-        self.lc_model = None; self.lc_scaler = None
-        self.oc_model = None; self.oc_scaler = None
+        # --- DUAL MODEL STORAGE ---
+        self.ml_models = {
+            'SVM': {'lc': None, 'lc_scaler': None, 'oc': None, 'oc_scaler': None},
+            'RF':  {'lc': None, 'lc_scaler': None, 'oc': None, 'oc_scaler': None}
+        }
         self.models_loaded = False
         if ML_AVAILABLE:
             self.models_loaded = self.load_models(project_root)
@@ -468,11 +370,19 @@ class SimulationApp:
             paths = [os.path.join(model_dir, "Models"), model_dir, os.path.join(model_dir, "ml")]
             for p in paths:
                  if os.path.exists(os.path.join(p, "lc_model_small.joblib")):
-                     self.lc_model = joblib.load(os.path.join(p, "lc_model_small.joblib"))
-                     self.lc_scaler = joblib.load(os.path.join(p, "lc_scaler_small.joblib"))
-                     self.oc_model = joblib.load(os.path.join(p, "oc_model_small.joblib"))
-                     self.oc_scaler = joblib.load(os.path.join(p, "oc_scaler_small.joblib"))
-                     return True
+                      self.ml_models['SVM']['lc'] = joblib.load(os.path.join(p, "lc_model_small.joblib"))
+                      self.ml_models['SVM']['lc_scaler'] = joblib.load(os.path.join(p, "lc_scaler_small.joblib"))
+                      self.ml_models['SVM']['oc'] = joblib.load(os.path.join(p, "oc_model_small.joblib"))
+                      self.ml_models['SVM']['oc_scaler'] = joblib.load(os.path.join(p, "oc_scaler_small.joblib"))
+                      
+                      try:
+                          self.ml_models['RF']['lc'] = joblib.load(os.path.join(p, "lc_model_rf.joblib"))
+                          self.ml_models['RF']['lc_scaler'] = joblib.load(os.path.join(p, "lc_scaler_rf.joblib"))
+                          self.ml_models['RF']['oc'] = joblib.load(os.path.join(p, "oc_model_rf.joblib"))
+                          self.ml_models['RF']['oc_scaler'] = joblib.load(os.path.join(p, "oc_scaler_rf.joblib"))
+                          self.log("Loaded SVM and RF models.")
+                      except: self.log("RF models missing, RF mode will fail.")
+                      return True
             return False
         except: return False
 
@@ -487,7 +397,7 @@ class SimulationApp:
         
         param_list = {
             "N_NODES": ("Number of Nodes:", DEFAULT_N_NODES),
-            "NUM_AUVS": ("Num AUVs:", DEFAULT_NUM_AUVS),
+            "NUM_AUVS": ("Max AUVs (Sweep):", DEFAULT_NUM_AUVS),
             "NUM_PACKETS": ("Num Packets:", DEFAULT_NUM_PACKETS),
             "AREA": ("Area Size (m):", AREA),
             "TX_RANGE": ("TX Range (m):", TX_RANGE),
@@ -497,7 +407,7 @@ class SimulationApp:
             "AUV_COVERAGE_RADIUS": ("AUV Coverage (m):", AUV_COVERAGE_RADIUS),
             "W_TIME": ("Weight (Time):", DEFAULT_W_TIME),
             "W_ENERGY": ("Weight (Energy):", DEFAULT_W_ENERGY),
-            "NODE_DRIFT": ("Node Drift (m):", NODE_MAX_DRIFT_M), # <-- GUI Parameter
+            "NODE_DRIFT": ("Node Drift (m):", NODE_MAX_DRIFT_M),
             "SEED": ("Random Seed (0=random):", 0)
         }
         
@@ -506,10 +416,10 @@ class SimulationApp:
             self.params[key] = tk.StringVar(value=str(val))
             ttk.Entry(controls_frame, textvariable=self.params[key], width=10).grid(row=i, column=1, sticky=tk.W, pady=2)
         
-        self.toggle_run_button = ttk.Button(left_panel, text="Run Simulation", command=self.toggle_simulation)
+        self.toggle_run_button = ttk.Button(left_panel, text="Run Single Simulation", command=self.toggle_simulation)
         self.toggle_run_button.pack(fill=tk.X, pady=5)
         
-        self.sweep_button = ttk.Button(left_panel, text="Run Comparative Sweep", command=self.start_sweep_experiment)
+        self.sweep_button = ttk.Button(left_panel, text="Run 4-Set 4-Plot Sweep", command=self.start_sweep_experiment)
         self.sweep_button.pack(fill=tk.X, pady=5)
         
         self.export_button = ttk.Button(left_panel, text="Export Log to CSV", command=self.export_log_to_csv, state=tk.DISABLED)
@@ -567,9 +477,8 @@ class SimulationApp:
             p["AUV_RELAY_RADIUS"] = float(self.params["AUV_COVERAGE_RADIUS"].get())
             p['SURFACE_STATION_POS'] = np.array([p['AREA']/2, p['AREA']/2, 0.0])
             p['USE_AUVS'] = True
-            
-            # User defined drift
             p['NODE_DRIFT'] = float(self.params['NODE_DRIFT'].get())
+            p['MODEL_TYPE'] = 'SVM' 
 
             self.stop_requested = False
             self.simulation_running.set()
@@ -607,85 +516,110 @@ class SimulationApp:
     def start_sweep_experiment(self):
         if self.is_simulation_running(): return
         self.log_text.delete('1.0', tk.END)
-        self.logger.info("--- Comparative Sweep Started ---")
+        self.logger.info("--- 4-SET COMPARATIVE SWEEP STARTED ---")
         self.toggle_run_button.config(text="Stop Sweep", state=tk.NORMAL)
         self.sweep_button.config(state=tk.DISABLED)
         self.stop_requested = False
         self.sweep_thread = threading.Thread(target=self.run_sweep_thread, daemon=True, name='Sweep-Orch')
         self.sweep_thread.start()
 
+    def _run_sub_sweep(self, p, auv_counts, label_prefix, use_auvs=True):
+        """Helper to run a sub-sweep for a specific parameter config."""
+        metrics_storage = [[], [], [], []] # PDR, RoR, ECR, Delay
+        
+        # Determine drift based on usage (None = 0.0 drift)
+        user_drift = float(self.params['NODE_DRIFT'].get())
+        p['NODE_DRIFT'] = user_drift if use_auvs else 0.0
+        
+        base_seed = int(p['SEED']) if p['SEED'] != 0 else int(time.time())
+        
+        # REMOVED: RUNS_PER_POINT loop and averaging logic
+        
+        for auv_count in auv_counts:
+            if self.stop_requested: break
+            self.logger.info(f"  > {label_prefix} | AUVs: {auv_count}")
+            
+            # --- Single Run Setup ---
+            current_p = p.copy()
+            current_p['NUM_AUVS'] = auv_count
+            current_p['NODE_SEED'] = base_seed
+            current_p['AUV_SEED'] = base_seed + (auv_count * 1000) # Deterministic seed
+            current_p['USE_AUVS'] = use_auvs
+            
+            # Cleanup and Run
+            self.osar_results = None; self.auv_results = None; self.auvs.clear(); self.sim_nodes.clear()
+            self._run_sweep_iteration(current_p)
+            
+            # Collect Metrics Directly (No Averaging)
+            if self.osar_results and self.auv_results:
+                m = self.calculate_final_metrics(log_to_gui=False)
+                if m: 
+                    for idx in range(4): metrics_storage[idx].append(m[idx])
+                else:
+                    for idx in range(4): metrics_storage[idx].append(0)
+            else:
+                for idx in range(4): metrics_storage[idx].append(0)
+                
+            self.simulation_running.set() # Reset flag for next loop
+
+        return metrics_storage
+
     def run_sweep_thread(self):
         try:
-            # --- SETUP ---
             base_p = {key: float(var.get()) for key, var in self.params.items()}
             base_p['SURFACE_STATION_POS'] = np.array([base_p['AREA']/2, base_p['AREA']/2, 0.0])
             base_p["PT_LINEAR"] = 10**(base_p["PT_DB"] / 10.0)
             
-            # Physics updates
-            global CH_BANDWIDTH, E_BIT_RX
-            CH_BANDWIDTH = 10e3  
-            E_BIT_RX = 0.1       
-
-            # Sweep Config
-            static_node_counts = [20, 30, 40, 50, 60] 
-            fixed_auvs = 3
-            base_p['NUM_AUVS'] = fixed_auvs
-            
-            x_total_nodes = [n + fixed_auvs for n in static_node_counts]
-            
-            self.sim_speed_multiplier = SIM_SPEED_MULTIPLIER_SWEEP
-            self.simulation_running.set()
-            
-            # --- SCENARIOS ---
-            scenarios = [
-                ('DTC with EE-AURS', True, 'SVM'),     
-                ('SVM with EE-AURS', True, 'SVM'),      
-                ('RF with EE-AURS', True, 'RF'),        
-                ('DTC without EE-AURS', False, 'SVM')   
+            # --- DEFINE THE 4 SETS ---
+            sets = [
+                ("SET 1: P_Busy", "P_BUSY", [0.93, 0.8, 0.5]),
+                ("SET 2: AUV Coverage", "AUV_COVERAGE_RADIUS", [150.0, 100.0, 75.0]),
+                ("SET 3: Num Nodes", "N_NODES", [30, 50, 60]),
+                ("SET 4: Num Packets", "NUM_PACKETS", [30, 50, 60])
             ]
             
-            results = {label: {'PDR': [], 'RoR': [], 'ECR': [], 'E2ED': []} for label, _, _ in scenarios}
+            max_auvs = int(base_p.get('NUM_AUVS', DEFAULT_NUM_AUVS))
+            auv_counts = list(range(1, max_auvs + 1))
+            self.sim_speed_multiplier = SIM_SPEED_MULTIPLIER_SWEEP
+            self.simulation_running.set()
 
-            self.logger.info("--- Starting Robust Sweep (30x Trimmed Avg) ---")
-            self.logger.info("Note: This will take longer but produce smoother graphs.")
-
-            # --- MAIN SWEEP LOOP ---
-            for n_static in static_node_counts:
-                total_n = n_static + fixed_auvs
+            for set_name, param_key, values in sets:
                 if self.stop_requested: break
-                self.logger.info(f"Simulating Total Nodes: {total_n}...")
+                self.logger.info(f"=== Starting {set_name} ===")
                 
-                for label, use_auvs, model in scenarios:
+                set_data = {} # Stores { 'SVM 0.93': data, 'RF 0.93': data ... }
+                
+                # 1. Run Baseline (None) - Use First Value in list as reference
+                p_none = base_p.copy()
+                p_none[param_key] = float(values[0])
+                set_data['Without LC/OC'] = self._run_sub_sweep(p_none, auv_counts, f"None (Ref {values[0]})", use_auvs=False)
+
+                # 2. Run Variations
+                for val in values:
                     if self.stop_requested: break
+                    p_curr = base_p.copy()
+                    p_curr[param_key] = float(val)
+                    p_curr['AUV_RELAY_RADIUS'] = float(p_curr['AUV_COVERAGE_RADIUS']) # Sync param
                     
-                    p = base_p.copy()
-                    p['N_NODES'] = n_static
-                    p['USE_AUVS'] = use_auvs
-                    p['MODEL_TYPE'] = model
-                    p['NODE_DRIFT'] = float(self.params['NODE_DRIFT'].get()) if use_auvs else 0.0
+                    # SVM
+                    p_curr['MODEL_TYPE'] = 'SVM'
+                    set_data[f"SVM ({param_key}={val})"] = self._run_sub_sweep(p_curr, auv_counts, f"SVM {val}", use_auvs=True)
                     
-                    # INCREASED RUNS TO 30 for smoothness
-                    avg = self._run_monte_carlo_point(p, runs=30)
-                    
-                    results[label]['PDR'].append(avg[0])
-                    results[label]['RoR'].append(avg[1])
-                    results[label]['ECR'].append(avg[2])
-                    results[label]['E2ED'].append(avg[3])
+                    # RF
+                    p_curr['MODEL_TYPE'] = 'RF'
+                    set_data[f"RF ({param_key}={val})"] = self._run_sub_sweep(p_curr, auv_counts, f"RF {val}", use_auvs=True)
 
-            # --- PLOTTING ---
-            if not self.stop_requested:
-                metrics = ['PDR', 'RoR', 'ECR', 'E2ED']
-                for m in metrics:
-                    self.q.put({
-                        'type': 'plot_final_metric', 
-                        'title': f"{m} vs Total number of nodes",
-                        'metric': m, 
-                        'x': x_total_nodes, 
-                        'results': results
-                    })
-                    time.sleep(0.1)
+                if self.stop_requested: break
+                
+                # Plot this Set immediately in a new window
+                self.q.put({
+                    'type': 'plot_set_result', 
+                    'title': set_name,
+                    'x_data': auv_counts, 
+                    'data': set_data
+                })
 
-            self.logger.info("Sweep Finished.")
+            self.logger.info("All Sets Finished.")
             self.q.put({'type': 'finished'})
 
         except Exception as e:
@@ -695,217 +629,8 @@ class SimulationApp:
             self.sim_speed_multiplier = SIM_SPEED_MULTIPLIER_NORMAL
             self.q.put({'type': 'finished'})
 
-    def spawn_metric_plot(self, plot_title, metric_name, x_data, results):
-        fig = plt.figure(figsize=(9, 7)) # Slightly larger for clarity
-        ax = fig.add_subplot(111)
-        
-        # --- DEFINED STYLES FOR THE 4 LINES ---
-        styles = {
-            'DTC with EE-AURS':    {'c': 'black', 'm': 'x', 'ls': '--'}, # Dashed Black
-            'SVM with EE-AURS':    {'c': 'blue',  'm': 'o', 'ls': '-'},  # Solid Blue
-            'RF with EE-AURS':     {'c': 'green', 'm': 's', 'ls': '-'},  # Solid Green
-            'DTC without EE-AURS': {'c': 'red',   'm': 'v', 'ls': ':'}   # Dotted Red
-        }
-
-        # Plot Loop
-        for label, data_dict in results.items():
-            if metric_name in data_dict:
-                y_vals = data_dict[metric_name]
-                s = styles.get(label, {'c': 'gray', 'm': '.', 'ls': '-'})
-                ax.plot(x_data, y_vals, label=label, color=s['c'], marker=s['m'], linestyle=s['ls'], linewidth=2, markersize=8)
-
-        # --- LABELS EXACTLY AS REQUESTED ---
-        ax.set_xlabel("Total number of nodes", fontsize=12, fontweight='bold')
-        ax.set_ylabel(metric_name, fontsize=12, fontweight='bold')
-        ax.set_title(plot_title, fontsize=14)
-        
-        ax.grid(True, which='both', linestyle='--', linewidth=0.5)
-        ax.legend(fontsize=10)
-        
-        # --- SCALING ADJUSTMENT FOR SEPARABILITY ---
-        # Instead of 0-1, we let matplotlib zoom in on the specific range of data
-        # This makes lines that are close (e.g., 0.92 vs 0.94) look distinct.
-        ax.autoscale(enable=True, axis='y', tight=False)
-        
-        # Add a small margin to top/bottom so points aren't cut off
-        y_min, y_max = ax.get_ylim()
-        margin = (y_max - y_min) * 0.1
-        ax.set_ylim(y_min - margin, y_max + margin)
-
-        plt.tight_layout()
-        
-        # --- SAVE TO FILE ---
-        graph_dir = os.path.join(script_dir, "ml", "Graphs")
-        if not os.path.exists(graph_dir):
-            os.makedirs(graph_dir)
-            
-        filename = f"{metric_name}_vs_Nodes.png"
-        save_path = os.path.join(graph_dir, filename)
-        
-        try:
-            fig.savefig(save_path, dpi=300)
-            self.log(f"Saved Graph: {save_path}")
-            print(f"Graph saved: {save_path}")
-        except Exception as e:
-            self.log(f"Error saving: {e}")
-            
-        plt.close(fig)
-
-    def _run_monte_carlo_point(self, p, runs=30):
-        """
-        Runs the simulation `runs` times (default 30).
-        - PDR/RoR: Uses the first 10 runs (sufficient for stable results).
-        - ECR/E2ED: Uses all 30 runs with Trimmed Mean (removes outliers).
-        """
-        history = [] # Store all run results
-        base_seed = int(p['SEED']) if p['SEED'] != 0 else int(time.time())
-
-        # We run the loop 30 times to gather enough data for ECR/E2ED
-        for i in range(runs):
-            if self.stop_requested: break
-            p['NODE_SEED'] = base_seed + i*17
-            p['AUV_SEED'] = base_seed + i*17 + 11
-            
-            self.osar_results = None; self.auv_results = None; self.auvs.clear(); self.sim_nodes.clear()
-            self._run_sweep_iteration(p)
-            
-            if self.osar_results and self.auv_results:
-                m = self.calculate_final_metrics_robust(log_to_gui=False)
-                if m:
-                    # m is (PDR, RoR, ECR, E2ED)
-                    history.append(list(m)) 
-            self.simulation_running.set()
-
-        if not history: return np.zeros(4)
-        
-        data = np.array(history) # Shape: (Runs, 4)
-        n_runs = len(history)
-        
-        final_metrics = []
-        
-        # --- METRIC 1 & 2: PDR and RoR (Indices 0 and 1) ---
-        # Strategy: Simple Average of first 10 runs
-        # (If we have fewer than 10, use whatever we have)
-        limit_pdr = min(n_runs, 10)
-        pdr_avg = np.mean(data[:limit_pdr, 0])
-        ror_avg = np.mean(data[:limit_pdr, 1])
-        
-        final_metrics.append(pdr_avg)
-        final_metrics.append(ror_avg)
-        
-        # --- METRIC 3 & 4: ECR and E2ED (Indices 2 and 3) ---
-        # Strategy: Trimmed Mean of ALL runs (removes top/bottom 20% outliers)
-        # This smooths out the topology spikes.
-        
-        if n_runs >= 5:
-            trim_count = int(n_runs * 0.2) # Remove top/bottom 20%
-            if trim_count < 1: trim_count = 1
-            
-            for col in [2, 3]: # ECR and E2ED
-                col_data = data[:, col]
-                col_data.sort()
-                valid_data = col_data[trim_count : -trim_count]
-                
-                if len(valid_data) > 0:
-                    final_metrics.append(np.mean(valid_data))
-                else:
-                    final_metrics.append(np.mean(col_data))
-        else:
-            # Fallback if runs < 5
-            final_metrics.append(np.mean(data[:, 2]))
-            final_metrics.append(np.mean(data[:, 3]))
-
-        return np.array(final_metrics)
-
-    def calculate_final_metrics_robust(self, log_to_gui=True):
-        """Modified metric calc to fix ECR decrease issue."""
-        if not self.osar_results or not self.auv_results: return None
-        p = self.osar_results['params']
-        
-        pkt_gen = self.osar_results.get('packets_generated', 0)
-        pkt_del = self.osar_results.get('packets_delivered', 0)
-        bits_data = self.osar_results.get('total_data_bits', 0)
-        bits_ctrl = self.osar_results.get('total_control_bits', 0)
-        delay_sum = self.osar_results.get('total_end_to_end_delay', 0.0)
-        
-        # --- FIX FOR ECR INCREASING WITH NODES ---
-        # Add "Overhearing Energy": More nodes = more people listening = more wasted energy
-        # Assumption: Every control bit is heard by ~30% of neighbors on average
-        n_nodes = int(p['N_NODES'])
-        overhearing_factor = n_nodes * 0.3 
-        e_overhearing = (bits_ctrl + bits_data) * overhearing_factor * 0.1 # 0.1J per bit RX cost
-        
-        e_data = bits_data * E_BIT_TX
-        e_ctrl = bits_ctrl * E_BIT_TX
-        
-        if p.get('USE_AUVS', True):
-            time_move = self.auv_results.get('total_auv_move_time', 0.0)
-        else:
-            time_move = 0.0
-            
-        e_move = time_move * E_AUV_MOVE_PER_S
-        total_energy = e_data + e_ctrl + e_move + e_overhearing
-
-        pdr = pkt_del / pkt_gen if pkt_gen > 0 else 0
-        overhead = bits_ctrl / (bits_data + bits_ctrl) if (bits_data + bits_ctrl) > 0 else 0
-        avg_delay = delay_sum / pkt_del if pkt_del > 0 else 0
-        ecr = (total_energy) / (bits_data) if bits_data > 0 else 0 
-        # Note: ECR is usually Energy per Data Bit delivered. 
-        # If you want the ratio (0-1), use: (e_ctrl + e_move + e_overhearing) / total_energy
-        # But standard ECR is Energy/Bit. Let's stick to the Ratio definition requested earlier but corrected.
-        
-        ecr_ratio = (e_ctrl + e_move + e_overhearing) / total_energy if total_energy > 0 else 0
-
-        return pdr, overhead, ecr_ratio, avg_delay
-
-    def plot_metric_set(self, set_title, x_data, results):
-        metrics = ['PDR', 'RoR', 'ECR', 'E2ED']
-        for m in metrics:
-            time.sleep(0.1)
-            self.q.put({'type': 'plot_final_metric', 'title': set_title, 'metric': m, 'x': x_data, 'results': results})
-
-    def process_queue(self):
-        try:
-            while True:
-                data = self.q.get_nowait()
-                if data['type'] == 'log': 
-                    self.log_text.insert(tk.END, data['message'] + "\n")
-                    self.log_text.see(tk.END)
-                elif data['type'] == 'plot_initial': 
-                    self.plot_initial_setup(data['nodes_pos'], data['buoy_pos'], data['area'])
-                elif data['type'] == 'setup_auv_plots': 
-                    self.setup_auv_plots(data['num_auvs'])
-                elif data['type'] == 'update_nodes': 
-                    self.update_node_plots(data['nodes_pos'])
-                elif data['type'] == 'plot_auvs': 
-                    self.update_auv_plots(data['auv_indices'])
-                elif data['type'] == 'plot_route': 
-                    if self.sim_speed_multiplier == SIM_SPEED_MULTIPLIER_NORMAL:
-                        c = 'blue' if data['success'] else 'red'
-                        self.ax.plot(data['route_pos'][:,0], data['route_pos'][:,1], data['route_pos'][:,2], color=c)
-                        self.fig.canvas.draw_idle()
-                elif data['type'] == 'osar_finished': 
-                    self.osar_results = data['data']
-                elif data['type'] == 'auv_finished': 
-                    self.auv_results = data['data']
-                
-                # --- PLOTTING HANDLER ---
-                elif data['type'] == 'plot_final_metric':
-                    self.spawn_metric_plot(data['title'], data['metric'], data['x'], data['results'])
-                
-                elif data['type'] == 'finished':
-                    self.simulation_running.clear()
-                    self.toggle_run_button.config(text="Run Simulation", state=tk.NORMAL)
-                    self.sweep_button.config(state=tk.NORMAL)
-                    if self.osar_results and self.auv_results and not self.sweep_thread.is_alive():
-                        self.calculate_final_metrics_robust(log_to_gui=True)
-                        
-        except queue.Empty: pass
-        self.root.after(100, self.process_queue)
-
     def _run_sweep_iteration(self, p):
-        seed_to_use = p.get('NODE_SEED', p['SEED'])
-        rng_nodes = np.random.default_rng(int(seed_to_use))
+        rng_nodes = np.random.default_rng(p['NODE_SEED'])
         self.sim_nodes = place_nodes_randomly(int(p['N_NODES']), p['AREA'], rng_nodes)
         
         self.auv_thread = threading.Thread(target=self.run_auv_thread, args=(p,), daemon=True)
@@ -950,37 +675,70 @@ class SimulationApp:
 
         return pdr, overhead, ecr, avg_delay
 
-    def plot_comparative(self, x, y_with, y_without):
-        self.fig.clear()
-        axs = self.fig.subplots(2, 2)
+    def process_queue(self):
+        try:
+            while True:
+                data = self.q.get_nowait()
+                if data['type'] == 'log': self.log_text.insert(tk.END, data['message'] + "\n"); self.log_text.see(tk.END)
+                elif data['type'] == 'plot_initial': self.plot_initial_setup(data['nodes_pos'], data['buoy_pos'], data['area'])
+                elif data['type'] == 'setup_auv_plots': self.setup_auv_plots(data['num_auvs'])
+                elif data['type'] == 'update_nodes': self.update_node_plots(data['nodes_pos'])
+                elif data['type'] == 'plot_auvs': self.update_auv_plots(data['auv_indices'])
+                elif data['type'] == 'plot_route': 
+                    if self.sim_speed_multiplier == SIM_SPEED_MULTIPLIER_NORMAL:
+                        self.ax.plot(data['route_pos'][:,0], data['route_pos'][:,1], data['route_pos'][:,2], color='blue' if data['success'] else 'red')
+                        self.fig.canvas.draw_idle()
+                elif data['type'] == 'osar_finished': self.osar_results = data['data']
+                elif data['type'] == 'auv_finished': self.auv_results = data['data']
+                
+                elif data['type'] == 'plot_set_result':
+                    # Spawn separate window for each Set (4 Sets total)
+                    self.spawn_set_plot_window(data['title'], data['x_data'], data['data'])
+                
+                elif data['type'] == 'finished':
+                    self.simulation_running.clear()
+                    self.toggle_run_button.config(text="Run Simulation", state=tk.NORMAL)
+                    self.sweep_button.config(state=tk.NORMAL)
+                    if self.osar_results and self.auv_results and not self.sweep_thread.is_alive():
+                        self.calculate_final_metrics(log_to_gui=True)
+                        
+        except queue.Empty: pass
+        self.root.after(100, self.process_queue)
+
+    def spawn_set_plot_window(self, title, x, results):
+        """Creates a new Matplotlib window for one of the 4 Sets."""
+        # Use pyplot to create a standard window (better for multi-figure reports)
+        fig, axs = plt.subplots(2, 2, figsize=(10, 8))
+        fig.suptitle(title, fontsize=14)
         
-        pdr_w = [d[0] for d in y_with]; pdr_wo = [d[0] for d in y_without]
-        ror_w = [d[1] for d in y_with]; ror_wo = [d[1] for d in y_without]
-        ecr_w = [d[2] for d in y_with]; ecr_wo = [d[2] for d in y_without]
-        del_w = [d[3] for d in y_with]; del_wo = [d[3] for d in y_without]
+        metric_titles = ['PDR', 'RoR', 'ECR', 'Delay']
         
-        axs[0,0].plot(x, pdr_w, 'b-o', label='With LC/OC')
-        axs[0,0].plot(x, pdr_wo, 'r--x', label='Without LC/OC')
-        axs[0,0].set_title('PDR'); axs[0,0].set_ylabel('Ratio'); axs[0,0].grid(True); axs[0,0].legend()
-        all_p = pdr_w + pdr_wo; mn, mx = min(all_p), max(all_p); pad = (mx-mn)*0.1 if mx!=mn else 0.05
-        axs[0,0].set_ylim(max(0, mn-pad), min(1.05, mx+pad))
+        # Consistent markers
+        markers = ['o', 's', '^', 'D', 'v', 'x', '*'] 
+        
+        for i in range(4): # For each metric (PDR, RoR, etc.)
+            ax = axs[i//2, i%2]
+            idx = 0
+            for label, metrics in results.items():
+                # metrics is [ [PDRs], [RoRs], [ECRs], [Delays] ]
+                y_vals = metrics[i]
+                
+                style = '-' if 'SVM' in label else '--' if 'RF' in label else ':'
+                marker = markers[idx % len(markers)]
+                
+                ax.plot(x, y_vals, linestyle=style, marker=marker, label=label)
+                idx += 1
+            
+            ax.set_title(metric_titles[i])
+            ax.grid(True)
+            if i == 0: ax.set_ylim(0, 1.1)
+            if i >= 2: ax.set_xlabel("Number of AUVs")
+            
+            # Legend only on first plot to save space
+            if i == 0: ax.legend(fontsize='x-small')
 
-        axs[0,1].plot(x, ror_w, 'b-o', label='With LC/OC')
-        axs[0,1].plot(x, ror_wo, 'r--x', label='Without LC/OC')
-        axs[0,1].set_title('Overhead Ratio'); axs[0,1].grid(True)
-
-        axs[1,0].plot(x, ecr_w, 'b-o', label='With LC/OC')
-        axs[1,0].plot(x, ecr_wo, 'r--x', label='Without LC/OC')
-        axs[1,0].set_title('Energy Cost Ratio'); axs[1,0].set_xlabel('Num AUVs'); axs[1,0].grid(True)
-        all_e = ecr_w + ecr_wo; mn, mx = min(all_e), max(all_e); pad = (mx-mn)*0.1 if mx!=mn else 0.001
-        axs[1,0].set_ylim(mn-pad, mx+pad)
-
-        axs[1,1].plot(x, del_w, 'b-o', label='With LC/OC')
-        axs[1,1].plot(x, del_wo, 'r--x', label='Without LC/OC')
-        axs[1,1].set_title('End-to-End Delay (s)'); axs[1,1].set_xlabel('Num AUVs'); axs[1,1].grid(True)
-
-        self.fig.tight_layout()
-        self.fig.canvas.draw_idle()
+        plt.tight_layout()
+        plt.show(block=False)
 
     def plot_initial_setup(self, nodes_pos, buoy_pos, area):
         self.init_hover_functionality()
@@ -997,7 +755,7 @@ class SimulationApp:
         for i in range(num_auvs):
             l, = self.ax.plot([],[],[], c='magenta', ls=':'); m, = self.ax.plot([],[],[], c='magenta', marker='X')
             self.auv_artists[i] = {'path': l, 'marker': m}
-            
+
     def update_auv_plots(self, indices):
         for i in indices:
             if i in self.auv_artists and i < len(self.auvs):
@@ -1010,8 +768,7 @@ class SimulationApp:
 
     def init_hover_functionality(self):
         self.annot = self.ax.annotate("", xy=(0,0), xytext=(20,20), textcoords="offset points", bbox=dict(boxstyle="round", fc="w"))
-        self.annot.set_visible(False)
-        self.fig.canvas.mpl_connect("motion_notify_event", self.hover)
+        self.annot.set_visible(False); self.fig.canvas.mpl_connect("motion_notify_event", self.hover)
     
     def hover(self, event):
         if event.inaxes == self.ax and self.sc_nodes:
@@ -1032,19 +789,25 @@ class SimulationApp:
             auv_map[i] = auv
         return np.array(features), auv_map
 
-    def update_controllers_svm(self, p):
+    def update_controllers(self, p):
         X, auv_map = self.collect_auv_features()
         if X is None or len(X) == 0: return
+        model_type = p.get('MODEL_TYPE', 'SVM')
         for auv in self.auvs: auv.is_lc = False; auv.is_oc = False
         try:
-            X_sc = self.lc_scaler.transform(X)
-            lc_pred = self.lc_model.predict(X_sc)
+            lc_model = self.ml_models[model_type]['lc']
+            lc_scaler = self.ml_models[model_type]['lc_scaler']
+            oc_model = self.ml_models[model_type]['oc']
+            oc_scaler = self.ml_models[model_type]['oc_scaler']
+            if not lc_model: return
+            X_sc = lc_scaler.transform(X)
+            lc_pred = lc_model.predict(X_sc)
             valid_lcs = []
             for i, pred in enumerate(lc_pred):
                 if pred == 1: auv_map[i].is_lc = True; valid_lcs.append(i)
             if valid_lcs:
-                 X_oc = self.oc_scaler.transform(X)
-                 probs = self.oc_model.predict_proba(X_oc)[:,1]
+                 X_oc = oc_scaler.transform(X)
+                 probs = oc_model.predict_proba(X_oc)[:,1]
                  best_idx = np.argmax(probs)
                  auv_map[best_idx].is_oc = True; auv_map[best_idx].is_lc = True
             self.q.put({'type': 'plot_auvs', 'auv_indices': list(range(len(self.auvs)))})
@@ -1055,23 +818,21 @@ class SimulationApp:
         while len(self.auvs) == 0 and self.simulation_running.is_set(): time.sleep(0.1)
         while self.simulation_running.is_set():
             time.sleep(SVM_UPDATE_PERIOD_S / self.sim_speed_multiplier)
-            self.update_controllers_svm(p)
+            self.update_controllers(p)
 
     def run_auv_thread(self, p):
         try:
-            seed_val = p.get('AUV_SEED', int(p['SEED']) + 1)
-            rng = np.random.default_rng(int(seed_val))
-            
+            seed = int(p.get('AUV_SEED', int(p['SEED']) + 1))
+            rng = np.random.default_rng(seed)
             local_auvs = []
             num_auvs = int(p['NUM_AUVS']); area = p['AREA']
             slice_width = area / num_auvs # Stratified sampling
 
             for i in range(num_auvs):
                 spd = rng.uniform(AUV_MIN_SPEED, AUV_MAX_SPEED)
-                # Stratified X position to prevent clustering
                 x = rng.uniform(i*slice_width, (i+1)*slice_width)
                 y = rng.uniform(0, area)
-                route = [np.array([x, y, 0.1]), np.array([x, y, p['AREA']*0.9])]
+                route = [np.array([x, y, 0.1]), np.array([x, y, p['AREA']*0.9]), np.array([x, y, 0.1])]
                 local_auvs.append(AUV(i, spd, route, p['SURFACE_STATION_POS'], coverage_radius=p['AUV_COVERAGE_RADIUS']))
             
             self.auvs = local_auvs
@@ -1080,7 +841,7 @@ class SimulationApp:
             dur = p.get('SWEEP_DURATION', SIMULATION_DURATION_S) if self.sim_speed_multiplier > 1 else SIMULATION_DURATION_S
             sim_t = 0.0; total_move = 0.0
             last_node_upd = 0.0
-            drift = p.get('NODE_DRIFT', 0.0) # Get drift setting
+            drift = p.get('NODE_DRIFT', 0.0)
 
             while self.simulation_running.is_set() and sim_t < dur:
                 moving = 0
@@ -1089,20 +850,18 @@ class SimulationApp:
                     if is_moving: moving += 1
                 total_move += moving * AUV_UPDATE_INTERVAL_S
                 
-                # --- Node Drift Logic ---
                 if drift > 0 and (sim_t - last_node_upd >= 1.0):
-                    for node in self.sim_nodes: node.update_position(drift)
+                    for node in self.sim_nodes: node.update_position(NODE_MAX_DRIFT_M)
                     if self.sim_speed_multiplier == 1.0:
                         npos = np.array([n.pos for n in self.sim_nodes])
                         self.q.put({'type': 'update_nodes', 'nodes_pos': npos})
                     last_node_upd = sim_t
                 
-                if int(sim_t*10) % 10 == 0: 
+                if int(sim_t*10) % 10 == 0 and self.sim_speed_multiplier == 1.0: 
                      self.q.put({'type': 'plot_auvs', 'auv_indices': list(range(len(local_auvs)))})
                 
                 time.sleep(AUV_UPDATE_INTERVAL_S / self.sim_speed_multiplier)
                 sim_t += AUV_UPDATE_INTERVAL_S
-            
             self.q.put({'type': 'auv_finished', 'data': {'total_auv_move_time': total_move}})
         except Exception as e: print(e)
 
@@ -1142,9 +901,7 @@ class SimulationApp:
                 if res:
                     pkt_del += 1; d_bits += LP; c_bits += res[1]; tot_delay += res[0]
                     self.q.put({'type': 'plot_route', 'route_pos': res[2], 'success': True})
-                else:
-                    c_bits += CONTROL_PACKET_LP * 5 
-                    
+                else: c_bits += CONTROL_PACKET_LP * 5 
                 time.sleep(0.5)
 
         self.q.put({'type': 'osar_finished', 'data': {
@@ -1158,8 +915,8 @@ class SimulationApp:
             for n in self.sim_nodes: n.update_channels(p['P_BUSY'])
             ctrl_bits += CONTROL_PACKET_LP
             best, td, _, _ = select_best_next_hop(curr, self.sim_nodes, self.auvs, 
-                                                  p['SURFACE_STATION_POS'], p['TX_RANGE'], freqs, 
-                                                  LP, CH_BANDWIDTH, p['PT_LINEAR'], rng, p)
+                                                p['SURFACE_STATION_POS'], p['TX_RANGE'], freqs, 
+                                                LP, CH_BANDWIDTH, p['PT_LINEAR'], rng, p)
             if not best: return None
             delay += td; path.append(best.pos)
             if "AUV" in str(best.node_id): return (delay, ctrl_bits, path)

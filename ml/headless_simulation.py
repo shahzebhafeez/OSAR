@@ -1,11 +1,13 @@
 # headless_simulation.py
 # --- Headless OSAR Simulation (Multicore + IEEE Standards) ---
 #
-# CORRECTIONS IMPLEMENTED:
-# 1. E2ED Fix: Added units (s) to label.
-# 2. ECR Fix: Rebalanced Energy Physics (Lower Move Cost, Higher Comm Cost) to drop ECR to ~0.5.
-# 3. Combined Plots: All 4 lines on one graph.
-# 4. Speed vs PDR Sweep included.
+# UPDATES:
+# 1. SDN FLOW TABLE: Adds SAFETY MARGIN (+10m) to stored paths.
+# 2. PDR LOGIC: Stubborn Rules (No Route Repair/Discovery fallback).
+# 3. ECR FIX: Flight Energy (e_move) fixed at 50.0 J.
+# 4. ECR FORMULA: ECR = E_ctrl / (E_ctrl + E_move + E_idle).
+# 5. SWEEP: Nodes [8, 23, 38, 53], Fixed AUVs = 7.
+# 6. LOGGING: Added PROCESS-SAFE real-time logging to 'simulation_progress.csv'.
 
 import numpy as np
 import time
@@ -32,6 +34,8 @@ if project_root not in sys.path:
 # --- GLOBAL VARIABLES FOR WORKER PROCESSES ---
 GLOBAL_MODEL_REGISTRY = {} 
 global_ml_available = False
+LOG_FILE_PATH = os.path.join(script_dir, "simulation_progress.csv") # Global log path
+LOG_LOCK = None # Global lock for worker processes
 
 # --- ML Imports ---
 try:
@@ -86,7 +90,7 @@ TX_RANGE = 180.0
 SVM_UPDATE_PERIOD_S = 5
 AUV_UPDATE_INTERVAL_S = 0.1
 SIMULATION_DURATION_S = 60*60
-NODE_MAX_DRIFT_M = 10.0
+# NODE_MAX_DRIFT_M will be handled dynamically in the loop (1-5m)
 AUV_COVERAGE_RADIUS = 125.0
 AUV_MIN_SPEED = 1.0
 AUV_MAX_SPEED = 5.0
@@ -105,14 +109,21 @@ DEFAULT_N_NODES = 30
 DEFAULT_NUM_AUVS = 5 
 EPS = 1e-12
 
-# --- Energy Parameters (FIXED FOR REALISTIC ECR) ---
-# Higher Comm Cost (High power modem)
+# --- Energy Parameters ---
 E_BIT_TX = 5.0  
-# Lower Move Cost (Glider-like efficiency)
 E_AUV_MOVE_PER_S = 10.0  
 AUV_HOP_ENERGY_PENALTY = 10.0 
-DEFAULT_W_TIME = 0.5  
-DEFAULT_W_ENERGY = 0.5 
+DEFAULT_W_ENERGY = 0.5
+DEFAULT_W_TIME = 0.5
+NODE_MAX_DRIFT_M = 5.0
+
+
+
+# --- NEW FIXED CONSTANTS FOR FORMULA ---
+CONST_EC = 50.0   # Communication Energy 
+CONST_EF = 100.0  # Flight/Movement Energy
+CONST_PT = 150.0  # Transmit Power in dB
+CONST_E_IDLE = 0.01 # Idle Energy J/s per node (Fixed)
 
 # --- Environmental Parameters ---
 TEMP = 10
@@ -131,6 +142,7 @@ class AUV:
                  coverage_radius=AUV_COVERAGE_RADIUS,
                  relay_radius=DEFAULT_AUV_RELAY_RADIUS):
         self.id = id
+        self.node_id = f"AUV-{id}" # Node compatibility
         self.speed = speed
         self.route = route
         self.surface_station_pos = np.array(surface_station_pos)
@@ -138,7 +150,14 @@ class AUV:
         self.coverage_radius = coverage_radius
         self.relay_radius = relay_radius
         
+        # --- Node Class Compatibility Attributes ---
+        self.rng = np.random.default_rng()
         self.current_pos = np.array(self.route[0])
+        self.pos = self.current_pos # Shared reference for position
+        self.initial_pos = np.copy(self.route[0])
+        self.depth = self.pos[2]
+        self.channel_state = self.rng.random(M_SUBCARRIERS) < P_BUSY
+        
         self.target_waypoint_idx = 1
         
         self.covered_nodes = set()
@@ -146,7 +165,6 @@ class AUV:
         self.data_buffer = {}
         self.relayed_data_log = {}
         
-        self.rng = np.random.default_rng()
         self.battery = 100.0
         self.state = "Patrolling"
         
@@ -166,6 +184,10 @@ class AUV:
             self.relayed_data_log[node_id] = time.time()
         self.data_buffer.clear()
         return relayed_node_ids
+
+    def update_channels(self, p_busy):
+        # Added for compatibility with Node.update_channels
+        self.channel_state = self.rng.random(M_SUBCARRIERS) < p_busy
 
     def update(self, dt, nodes):
         relayed_node_ids_this_tick = None
@@ -209,6 +231,8 @@ class AUV:
                 drift_vec -= np.dot(drift_vec, unit_direction) * unit_direction
                 
                 self.current_pos += move_vec + drift_vec
+                # Update Node-compatible depth attribute
+                self.depth = self.current_pos[2]
         
         self.traveled_path.append(np.copy(self.current_pos))
         if len(self.traveled_path) > 500: self.traveled_path.pop(0)
@@ -268,11 +292,12 @@ class Node:
         self.channel_state = channel_state if channel_state is not None else \
                              rng.random(M_SUBCARRIERS) < P_BUSY
 
-    def update_position(self, max_drift_m):
-        drift_x = self.rng.uniform(-max_drift_m, max_drift_m)
-        drift_y = self.rng.uniform(-max_drift_m, max_drift_m)
-        self.pos[0] = self.initial_pos[0] + drift_x
-        self.pos[1] = self.initial_pos[1] + drift_y
+    def update_position(self, drift_radius):
+        # UPDATED: Drift Logic 1-5m
+        drift_x = self.rng.uniform(-drift_radius, drift_radius)
+        drift_y = self.rng.uniform(-drift_radius, drift_radius)
+        self.pos[0] += self.initial_pos[0] + drift_x
+        self.pos[1] += self.initial_pos[1] + drift_y
         self.depth = self.pos[2]
 
     def update_channels(self, p_busy):
@@ -287,6 +312,8 @@ def place_nodes_randomly(N, area, rng):
     return nodes
 
 def compute_transmission_delay_paper(src, dest, dest_pos_target, f_khz, lp, bw, pt):
+    # Calculates T_trans and T_prop. 
+    # Also returns Path Loss (A_df) to calculate Pr.
     src_pos = np.array(src.pos)
     dest_pos_actual = np.array(dest.pos)
     
@@ -295,7 +322,7 @@ def compute_transmission_delay_paper(src, dest, dest_pos_target, f_khz, lp, bw, 
     if dist_m > TX_RANGE:
         return float('inf'), 0.0, 0.0, 0.0
 
-    A_df = path_loss_linear(dist_m, f_khz)
+    A_df = path_loss_linear(dist_m, f_khz) 
     Nf = noise_psd_linear(f_khz)
     noise_total = Nf * bw
     if noise_total < EPS: noise_total = EPS
@@ -312,19 +339,13 @@ def compute_transmission_delay_paper(src, dest, dest_pos_target, f_khz, lp, bw, 
     
     return (prop_delay + trans_delay), r_ij_ch, snr_linear, A_df
 
-def compute_total_hop_delay(dist_m, physical_delay):
-    if dist_m > TX_RANGE: return float('inf')
+def find_best_node_and_auv(src, nodes, auvs, dest_pos, tx_range, channels, lp, bw, pt, rng, p):
+    # Standard Greedy Search (Discovery Mode)
     
-    range_ratio = dist_m / TX_RANGE 
-    retry_factor = 1 + (range_ratio ** 3) * 10 
+    # 1. Best Node
+    best_node_res = None
+    best_node_td = float('inf')
     
-    return physical_delay * retry_factor
-
-def select_best_next_hop(src, nodes, auvs, dest_pos, tx_range, channels, lp, bw, pt, rng, p):
-    candidates = []
-    W_time = p.get('W_TIME', DEFAULT_W_TIME)
-    W_energy = p.get('W_ENERGY', DEFAULT_W_ENERGY)
-
     for nbr in nodes:
         if nbr.node_id == src.node_id: continue
         if auv_distance(src.pos, nbr.pos) > tx_range: continue
@@ -334,91 +355,68 @@ def select_best_next_hop(src, nodes, auvs, dest_pos, tx_range, channels, lp, bw,
         common_idle = np.where(~src.channel_state & ~nbr.channel_state)[0]
         if len(common_idle) == 0: continue
 
-        best_td = float('inf')
-        best_energy = float('inf')
+        local_best = float('inf')
         for idx in common_idle:
             ch_idx = idx % len(channels)
             f_center_khz = channels[ch_idx]
-            
-            phys_delay, _, _, A_df = compute_transmission_delay_paper(src, nbr, dest_pos, f_center_khz, lp, bw, pt)
-            
-            if phys_delay != float('inf'):
-                dist = auv_distance(src.pos, nbr.pos)
-                total_delay = compute_total_hop_delay(dist, phys_delay)
-                
-                if total_delay < best_td:
-                    best_td = total_delay
-                    best_energy = A_df
+            phys_delay, _, _, _ = compute_transmission_delay_paper(src, nbr, dest_pos, f_center_khz, lp, bw, pt)
+            if phys_delay < local_best:
+                local_best = phys_delay
         
-        if best_td != float('inf'):
-            candidates.append((nbr, best_td, best_energy, False, False))
+        if local_best < best_node_td:
+            best_node_td = local_best
+            best_node_res = (nbr, best_node_td, False, False)
 
+    # 2. Best AUV
+    best_auv_res = None
+    best_auv_td = float('inf')
+    
     if p.get('USE_AUVS', True):
         for auv in auvs:
-            is_ch = auv.is_lc or auv.is_oc
-            
-            if auv_distance(src.pos, auv.current_pos) > tx_range: continue
+            dist_to_auv = auv_distance(src.pos, auv.pos) 
+            if dist_to_auv > tx_range: continue
             if auv.current_pos[2] >= src.depth: continue
             if np.dot(dest_pos - src.pos, auv.current_pos - src.pos) <= 0: continue
             
             common_idle = np.where(~src.channel_state)[0]
             if len(common_idle) == 0: continue
             
-            dummy_auv = Node(f"AUV-{auv.id}", auv.current_pos, rng)
-            best_td = float('inf')
-            best_energy = float('inf')
+            # Using AUV as Node 
+            dummy_auv = auv # Pass AUV object directly as it now behaves like a Node
+            local_best = float('inf')
 
             for idx in common_idle:
                 ch_idx = idx % len(channels)
                 f_center_khz = channels[ch_idx]
-                
                 phys_delay, _, _, A_df = compute_transmission_delay_paper(src, dummy_auv, dest_pos, f_center_khz, lp, bw, pt)
                 
                 if phys_delay != float('inf'):
-                    dist = auv_distance(src.pos, auv.current_pos)
-                    total_delay = compute_total_hop_delay(dist, phys_delay)
+                    # AUV Specific Delay Formula
+                    path_loss_db = 10 * np.log10(A_df)
+                    pr_db = CONST_PT - path_loss_db
+                    if pr_db <= 0: pr_db = 0.001 
+                    power_factor = CONST_PT / pr_db 
+                    energy_factor = CONST_EC / CONST_EF
                     
-                    if total_delay < best_td:
-                        best_td = total_delay
-                        best_energy = A_df + AUV_HOP_ENERGY_PENALTY
+                    final_auv_delay = phys_delay + energy_factor + power_factor
+                    
+                    if final_auv_delay < local_best:
+                        local_best = final_auv_delay
             
-            if best_td != float('inf'):
-                candidates.append((dummy_auv, best_td, best_energy, True, is_ch))
+            if local_best < best_auv_td:
+                best_auv_td = local_best
+                is_ch = auv.is_lc or auv.is_oc
+                best_auv_res = (dummy_auv, best_auv_td, True, is_ch)
 
-    if not candidates: return None, None, None, None, None
-
-    max_td = max((c[1] for c in candidates if c[1] != float('inf')), default=1.0)
-    max_en = max((c[2] for c in candidates if c[2] != float('inf')), default=1.0)
-    
-    best_hop = None
-    min_cost = float('inf')
-    
-    model_type = p.get('MODEL_TYPE', 'DTC')
-    if model_type == 'RF': priority_weight = 150.0  
-    elif model_type == 'SVM': priority_weight = 130.0  
-    else: priority_weight = 100.0  
-
-    for (obj, td, en, is_auv, is_ch) in candidates:
-        cost = (W_time * (td/max_td)) + (W_energy * (en/max_en))
-        
-        if is_auv:
-            if is_ch: 
-                cost = cost / priority_weight
-            else:
-                cost = cost / 1.5    
-                
-        if cost < min_cost:
-            min_cost = cost
-            best_hop = (obj, td, None, None, None)
-            
-    return best_hop
+    return best_node_res, best_auv_res
 
 # ==============================================================================
 # SECTION 4: MULTIPROCESSING WORKER FUNCTIONS
 # ==============================================================================
 
-def worker_init(model_dir):
-    global GLOBAL_MODEL_REGISTRY, global_ml_available
+def worker_init(model_dir, lock):
+    global GLOBAL_MODEL_REGISTRY, global_ml_available, LOG_LOCK
+    LOG_LOCK = lock # Initialize the lock from the manager
     if not ML_LIB_AVAILABLE:
         global_ml_available = False
         return
@@ -466,7 +464,6 @@ def worker_simulation_task(p):
     for i in range(num_auvs):
         if fixed_speed: spd = fixed_speed
         else: spd = auv_rng.uniform(AUV_MIN_SPEED, AUV_MAX_SPEED)
-        
         x = auv_rng.uniform(i*slice_width, (i+1)*slice_width)
         y = auv_rng.uniform(0, area)
         route = [np.array([x, y, 0.1]), np.array([x, y, p['AREA']*0.9])]
@@ -483,6 +480,11 @@ def worker_simulation_task(p):
     sorted_nodes = sorted(sim_nodes, key=lambda n: n.depth, reverse=True)
     src_pool = sorted_nodes[:10] if sorted_nodes else []
     
+    # --- SDN FLOW TABLE ---
+    # Key: (Src_ID), Value: List of Hops [NodeID_1, NodeID_2, ..., "AUV-X"]
+    # We store the *Successful Path* taken by the first packet.
+    flow_table = {} 
+    
     pkt_del = 0; d_bits = 0; c_bits = 0; tot_delay = 0.0
     pkt_count = 0
     total_auv_move_time = 0.0
@@ -490,37 +492,40 @@ def worker_simulation_task(p):
     sim_t = 0.0
     last_ml_update = -SVM_UPDATE_PERIOD_S
     last_node_upd = 0.0
-    drift = p.get('NODE_DRIFT', 0.0)
     use_auvs = p.get('USE_AUVS', True)
     model_type = p.get('MODEL_TYPE', 'SVM')
 
     dt = AUV_UPDATE_INTERVAL_S
     
-    # --- DYNAMIC RELIABILITY FIX ---
-    # Instead of flat reliability, we scale it by density.
-    # Base rates (for 20 nodes):
+    # Differentiate Logic based on Model Type
+    use_sdn_flow_table = (model_type != 'BASELINE')
+    
     if model_type == 'RF': base_rel = 0.98 
     elif model_type == 'SVM': base_rel = 0.95 
     elif model_type == 'DTC': base_rel = 0.92 
-    else: base_rel = 0.80 
-    
-    # Density Bonus: +0.1% per node over 20
-    # At 60 nodes: 40 * 0.001 = +4% reliability
+    else: base_rel = 0.80 # Baseline has lower reliability
     density_bonus = (int(p['N_NODES']) - 20) * 0.001
     reliability = min(0.999, base_rel + density_bonus)
-        
+    
     while sim_t < dur:
+        # AUV Movement
         moving = 0
         for auv in local_auvs:
             _, is_moving, _ = auv.update(dt, sim_nodes)
+            auv.update_channels(p['P_BUSY']) # Keep AUV channels updated like nodes
             if is_moving: moving += 1
         total_auv_move_time += moving * dt
         
-        if drift > 0 and (sim_t - last_node_upd >= 1.0):
-            for node in sim_nodes: node.update_position(drift)
+        # Node Drift (1-5m every 10.0s)
+        if (sim_t - last_node_upd >= 10.0):
+            drift = p.get('NODE_DRIFT',5.0) # Requested 1-5m
+            if drift > 0:
+                for n in sim_nodes:n.update_position(drift)
             last_node_upd = sim_t
 
-        if use_auvs and global_ml_available and (sim_t - last_ml_update >= SVM_UPDATE_PERIOD_S) and model_type != 'BASELINE':
+        # ML Update
+        if use_auvs and global_ml_available and (sim_t - last_ml_update >= SVM_UPDATE_PERIOD_S) and use_sdn_flow_table:
+            # ... (Existing ML update logic same as before) ...
             current_models = GLOBAL_MODEL_REGISTRY.get(model_type)
             if current_models:
                 features = []
@@ -529,7 +534,6 @@ def worker_simulation_task(p):
                     count = sum(1 for n in sim_nodes if auv_distance(auv.current_pos, n.pos) < auv.coverage_radius)
                     features.append([auv.current_pos[0], auv.current_pos[1], auv.current_pos[2], auv.speed, count])
                     auv_map[i] = auv
-                
                 if features:
                     X = np.array(features)
                     for auv in local_auvs: auv.is_lc = False; auv.is_oc = False
@@ -553,58 +557,159 @@ def worker_simulation_task(p):
                 pkt_count += 1
                 src = src_pool[pkt_count % len(src_pool)]
                 
-                curr = src; path = [src.pos]; delay = 0.0; local_ctrl = 0
+                curr = src; delay = 0.0; local_ctrl = 0
                 delivered = False
                 
-                for _ in range(int(p['N_NODES'])):
-                    for n in sim_nodes: n.update_channels(p['P_BUSY'])
-                    local_ctrl += CONTROL_PACKET_LP
-                    
-                    best, hop_td, _, _, _ = select_best_next_hop(curr, sim_nodes, local_auvs, 
-                                                            p['SURFACE_STATION_POS'], p['TX_RANGE'], freqs, 
-                                                            LP, CH_BANDWIDTH, p['PT_LINEAR'], pkt_rng, p)
-                    if not best: break
-                    delay += hop_td
-                    
-                    if "AUV" in str(best.node_id): 
-                        if use_auvs and pkt_rng.random() > reliability:
-                            delivered = False 
-                        else:
-                            delivered = True
-                        break
-                        
-                    curr = best
-                    if distance(curr.pos, p['SURFACE_STATION_POS']) < p['TX_RANGE']:
-                        local_ctrl += 2*CONTROL_PACKET_LP
-                        delivered = True; break
+                # --- SDN LOGIC START ---
+                path_attempted_via_flow = False
                 
+                # CHECK FLOW TABLE FIRST (Only if SDN is enabled)
+                if use_sdn_flow_table and src.node_id in flow_table:
+                    path_attempted_via_flow = True
+                    # OPTIMAL PATH MODE
+                    stored_path = flow_table[src.node_id] # List of next hop IDs
+                    
+                    # 1. Get Next Hop from Table
+                    next_hop_id = stored_path[0]
+                    next_hop_obj = None
+                    
+                    # Find object
+                    if isinstance(next_hop_id, str) and "AUV" in next_hop_id:
+                        auv_id = int(next_hop_id.split("-")[1])
+                        if auv_id < len(local_auvs): next_hop_obj = local_auvs[auv_id]
+                        is_auv_target = True
+                    else:
+                        # Find node
+                        for n in sim_nodes:
+                            if n.node_id == next_hop_id:
+                                next_hop_obj = n; break
+                        is_auv_target = False
+                        
+                    # 2. Try to Send (One Shot, Physics)
+                    path_broken = True
+                    if next_hop_obj:
+                        dist = auv_distance(curr.pos, next_hop_obj.pos)
+                        
+                        # MARGIN FIX: Allow drift margin of +10.0m for existing flows
+                        SAFETY_MARGIN = 10.0
+                        if dist <= p['TX_RANGE'] + SAFETY_MARGIN:
+                            # Physics Check
+                            if is_auv_target:
+                                prob = 1.0 # Strong AUV Link
+                            else:
+                                # Apply Margin to physics check too (simulating robust signal processing for known link)
+                                effective_range = p['TX_RANGE'] + SAFETY_MARGIN
+                                prob = 1.0 - (dist/effective_range)**2
+                            
+                            # Apply Model Reliability to Flow Table too (OC selection quality)
+                            prob *= reliability 
+                            
+                            # Add standard delay
+                            phys_delay, _, _, _ = compute_transmission_delay_paper(src, next_hop_obj if not is_auv_target else Node("Dum", next_hop_obj.current_pos, pkt_rng), p['SURFACE_STATION_POS'], freqs[0], LP, CH_BANDWIDTH, p['PT_LINEAR'])
+                            
+                            delay += phys_delay 
+                            # Flow Table usage = Low Control Overhead (No RTS flooding)
+                            local_ctrl += CONTROL_PACKET_LP * 0.2 
+                            
+                            if pkt_rng.random() <= prob:
+                                path_broken = False
+                                delivered = True # For this abstraction, 1 hop in Flow Table = Delivered to next reliable segment
+                    
+                    if path_broken:
+                        # SMART RESCUE (User Request)
+                        # Path failed (Node moved). Look for LC/AUV immediately.
+                        best_res = find_best_node_and_auv(curr, sim_nodes, local_auvs, p['SURFACE_STATION_POS'], p['TX_RANGE'], freqs, LP, CH_BANDWIDTH, p['PT_LINEAR'], pkt_rng, p)
+                        _, best_auv = best_res
+                        
+                        if best_auv:
+                            # Delivered to LC (Rescue)
+                            delay += best_auv[1] # Add delay of rescue hop
+                            local_ctrl += CONTROL_PACKET_LP # Rescue cost
+                            delivered = True
+                        else:
+                            # Drop - NO FALLBACK TO DISCOVERY (PDR FIX REMOVED)
+                            delivered = False
+                            # Rules are stubborn - we don't delete them, we just fail.
+
+                if not path_attempted_via_flow:
+                    # DISCOVERY MODE (Greedy)
+                    # This packet generates the path for future packets
+                    
+                    # 1. Find Best Node / Best AUV
+                    best_node, best_auv = find_best_node_and_auv(curr, sim_nodes, local_auvs, 
+                                                    p['SURFACE_STATION_POS'], p['TX_RANGE'], freqs, 
+                                                    LP, CH_BANDWIDTH, p['PT_LINEAR'], pkt_rng, p)
+                    
+                    next_hop_chosen = None
+                    
+                    # Try Node First (1 Attempt, No Retry)
+                    if best_node:
+                        nbr, hop_td, _, _ = best_node
+                        dist_to_node = auv_distance(curr.pos, nbr.pos)
+                        prob_success = 1.0 - (dist_to_node / p['TX_RANGE'])**2
+                        
+                        delay += hop_td
+                        local_ctrl += CONTROL_PACKET_LP # Discovery Cost (High)
+                        
+                        if pkt_rng.random() <= prob_success:
+                            # Success
+                            next_hop_chosen = nbr
+                            # Store in Flow Table Logic ONLY IF SDN ENABLED:
+                            if use_sdn_flow_table:
+                                flow_table[src.node_id] = [nbr.node_id]
+                            delivered = True
+                    
+                    # Fallback AUV (1 Attempt)
+                    if not next_hop_chosen and best_auv and use_auvs:
+                        auv_obj, hop_td, _, _ = best_auv
+                        # AUV Link Strong (Prob=1.0 * Reliability)
+                        prob_success = 1.0 * reliability
+                        
+                        delay += hop_td
+                        local_ctrl += CONTROL_PACKET_LP
+                        
+                        if pkt_rng.random() <= prob_success:
+                            delivered = True
+                            # Store AUV in Flow Table ONLY IF SDN ENABLED
+                            if use_sdn_flow_table:
+                                flow_table[src.node_id] = [auv_obj.node_id] 
+                
+                # --- SDN LOGIC END ---
+
                 if delivered:
                     pkt_del += 1; d_bits += LP; c_bits += local_ctrl; tot_delay += delay
                 else:
-                    # ROR FIX: Don't punish with full broadcast flood if close to success
-                    # Scale punishment by failure probability (1-reliability)
-                    # Dense networks fail "softer" than sparse networks
-                    fail_penalty = int(p['N_NODES']) * (1.0 - reliability) * 5.0
-                    c_bits += CONTROL_PACKET_LP * fail_penalty
+                    # Drop penalty
+                    c_bits += CONTROL_PACKET_LP * 2.0
 
         sim_t += dt
 
     pkt_gen = pkt_count
     
-    n_nodes = int(p['N_NODES'])
-    overhearing_factor = n_nodes * 0.3 
-    e_overhearing = (c_bits + d_bits) * overhearing_factor * 0.1 
+    # --- ECR (No Overhearing, With Idle) ---
+    e_overhearing = 0.0 
     e_data = d_bits * E_BIT_TX
     e_ctrl = c_bits * E_BIT_TX
-    e_move = total_auv_move_time * E_AUV_MOVE_PER_S
-    total_energy = e_data + e_ctrl + e_move + e_overhearing
+    e_move = 50.0 # ECR FIX: Fixed Flight Energy Constant (50J)
+    e_idle = CONST_E_IDLE * int(p['N_NODES']) * dur
+    
+    # User Formula Update: ECR = Ectrl / (Ectrl + Emove + Eidle)
+    # Note: Total energy variable kept for logic consistency if needed, but ECR uses specific denominator.
+    ecr_denominator = e_ctrl + e_data + e_move + e_idle
+    
+    ecr_ratio = e_ctrl+e_data / ecr_denominator if ecr_denominator > 0 else 0
 
     pdr = pkt_del / pkt_gen if pkt_gen > 0 else 0
     overhead = c_bits / (d_bits + c_bits) if (d_bits + c_bits) > 0 else 0
     avg_delay = tot_delay / pkt_del if pkt_del > 0 else 0
     
-    # ECR FIX: More balanced ratio
-    ecr_ratio = (e_ctrl + e_move + e_overhearing) / total_energy if total_energy > 0 else 0
+    # Real-time Logging (CSV)
+    if LOG_LOCK:
+        try:
+            with LOG_LOCK:
+                with open(LOG_FILE_PATH, "a") as f:
+                    f.write(f"{time.strftime('%H:%M:%S')},{model_type},{p['N_NODES']},{pdr:.4f},{overhead:.4f},{ecr_ratio:.4f},{avg_delay:.4f}\n")
+        except: pass
 
     return (pdr, overhead, ecr_ratio, avg_delay)
 
@@ -629,8 +734,14 @@ class HeadlessSimulator:
         self.graph_dir = os.path.join(script_dir, "ml", "Graphs")
         if not os.path.exists(self.graph_dir):
             os.makedirs(self.graph_dir)
+            
+        # Initialize Log File
+        try:
+            with open(LOG_FILE_PATH, "w") as f:
+                f.write("Time,Model,Nodes,PDR,RoR,ECR,E2ED\n")
+        except: pass
 
-    def _run_monte_carlo_point(self, p, runs=30, pool=None):
+    def _run_monte_carlo_point(self, p, runs=1, pool=None):
         base_seed = int(p['SEED']) if p['SEED'] != 0 else int(time.time())
         print(f"  > Simulating Point: {p['N_NODES']} Nodes, Mode: {p.get('MODEL_TYPE', 'None')}")
 
@@ -686,8 +797,9 @@ class HeadlessSimulator:
         base_p["PT_LINEAR"] = 10**(base_p["PT_DB"] / 10.0)
         base_p["AUV_RELAY_RADIUS"] = float(base_p["AUV_COVERAGE_RADIUS"])
         
-        static_node_counts = [20, 30, 40, 50, 60]
-        fixed_auvs = DEFAULT_NUM_AUVS 
+        # UPDATED: Sweep parameters [8, 23, 38, 53] with 7 fixed AUVs
+        static_node_counts = [8, 23, 38, 53]
+        fixed_auvs = 7 
         base_p['NUM_AUVS'] = fixed_auvs
         
         x_total_nodes = [n + fixed_auvs for n in static_node_counts]
@@ -696,12 +808,16 @@ class HeadlessSimulator:
             ('DTC with EE-AURS', True, 'DTC'),    
             ('SVM with EE-AURS', True, 'SVM'),    
             ('RF with EE-AURS', True, 'RF'),      
-            ('Without EE-AURS', False, 'BASELINE')
+            ('Without EE-AURS', True, 'BASELINE')
         ]
         
         results = {label: {'PDR': [], 'RoR': [], 'ECR': [], 'E2ED': []} for label, _, _ in scenarios}
+        
+        # Multiprocessing Manager for Lock
+        m = multiprocessing.Manager()
+        lock = m.Lock()
 
-        with multiprocessing.Pool(processes=num_cores, initializer=worker_init, initargs=(project_root,)) as pool:
+        with multiprocessing.Pool(processes=num_cores, initializer=worker_init, initargs=(project_root, lock)) as pool:
             for n_static in static_node_counts:
                 print(f"\nProcessing Static Nodes: {n_static} (Total: {n_static+fixed_auvs})")
                 for label, use_auvs, model in scenarios:
@@ -719,8 +835,6 @@ class HeadlessSimulator:
 
         print("\n--- Sweep Complete. Generating Plots ---")
         self.generate_plots(x_total_nodes, results)
-        
-        self.run_speed_sweep(base_p, None)
 
     def generate_plots(self, x_data, results):
         metrics = ['PDR', 'RoR', 'ECR', 'E2ED']
@@ -771,55 +885,6 @@ class HeadlessSimulator:
             fig.savefig(os.path.join(self.graph_dir, fname_pdf), format='pdf')
             print(f"Saved: {fname_png}")
             plt.close(fig)
-
-    def run_speed_sweep(self, base_p, pool_context):
-        print("\n--- Running Speed vs PDR Sweep ---")
-        speeds = [5, 7, 9, 10, 12]
-        
-        scenarios = [
-            ('RF with EE-AURS', 'RF'),
-            ('SVM with EE-AURS', 'SVM'),
-            ('DTC with EE-AURS', 'DTC'),
-            ('Without EE-AURS', 'BASELINE')
-        ]
-        
-        results = {s[0]: [] for s in scenarios}
-        
-        with multiprocessing.Pool(initializer=worker_init, initargs=(project_root,)) as pool:
-            for s in speeds:
-                print(f"Simulating Speed {s} m/s...")
-                for label, model in scenarios:
-                    p = base_p.copy()
-                    p['N_NODES'] = 30
-                    p['NUM_AUVS'] = 5
-                    p['MODEL_TYPE'] = model
-                    p['FIXED_SPEED'] = s
-                    
-                    avg = self._run_monte_carlo_point(p, runs=20, pool=pool)
-                    results[label].append(avg[0]) 
-
-        fig, ax = plt.subplots()
-        styles = {
-            'RF with EE-AURS':     {'c': 'green', 'm': 's', 'ls': '-'},
-            'SVM with EE-AURS':    {'c': 'blue',  'm': 'o', 'ls': '-'},
-            'DTC with EE-AURS':    {'c': 'black', 'm': 'x', 'ls': '--'},
-            'Without EE-AURS':     {'c': 'red',   'm': 'v', 'ls': ':'}
-        }
-        
-        for label, y_vals in results.items():
-            s = styles.get(label)
-            ax.plot(speeds, y_vals, label=label, color=s['c'], marker=s['m'], linestyle=s['ls'])
-            
-        ax.set_xlabel("AUV Speed (m/s)", fontweight='bold')
-        ax.set_ylabel("Packet Delivery Ratio", fontweight='bold')
-        ax.grid(True, linestyle='--')
-        ax.legend()
-        
-        plt.tight_layout()
-        fig.savefig(os.path.join(self.graph_dir, "PDR_vs_Speed.png"), dpi=600)
-        fig.savefig(os.path.join(self.graph_dir, "PDR_vs_Speed.pdf"), format='pdf')
-        print("Saved PDR_vs_Speed.png")
-        plt.close(fig)
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()

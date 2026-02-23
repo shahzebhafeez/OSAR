@@ -1,6 +1,6 @@
 Simulation Results : 
 1.PDR vs # of Nodes
-<img width="4743" height="3535" alt="Combined_PDR" src="https://github.com/user-attachments/assets/dac64f8f-1194-48c3-92a2-17b87e598f51" />
+<img width="2000" height="2500" alt="Combined_PDR" src="https://github.com/user-attachments/assets/dac64f8f-1194-48c3-92a2-17b87e598f51" />
 
 2.ECR vs # of Nodes
 <img width="4742" height="3535" alt="Combined_ECR" src="https://github.com/user-attachments/assets/910ab1c6-bbf4-477b-a1f6-b35b59169d48" />

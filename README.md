@@ -1,32 +1,60 @@
-OSAR-UW: Cross-Layer Underwater Acoustic Networking Simulator
-📌 Project Overview
-A specialized discrete-event simulation platform designed to model Underwater Wireless Sensor Networks (UWSNs). Unlike terrestrial networks, underwater communication relies on acoustic waves, which suffer from low bandwidth (kbps range) and extreme propagation delays (1500m/s). This project simulates the entire networking stack—from Thorp’s attenuation models at the physical layer to depth-based routing (DBR) at the network layer—providing a sandbox to test protocol reliability in harsh, non-linear oceanic environments.
+# OSAR-UW: Underwater Acoustic Networking & Protocol Simulator
 
-🚀 Key Features
-Acoustic PHY Modeling: Implements the Thorp Propagation Model to calculate path loss, ambient noise (shipping, wind, thermal), and frequency-dependent attenuation.
+### 📌 Project Overview
+**OSAR-UW** is a high-fidelity discrete-event simulation platform designed to model the unique challenges of **Underwater Wireless Sensor Networks (UWSNs)**. Unlike terrestrial RF networks, underwater communication relies on acoustic waves characterized by **extreme propagation delays (1500m/s)**, high bit-error rates, and severely limited bandwidth. 
 
-Propagation Delay Simulation: Accurately models the "Slotted-Prop" effect, where high latency leads to frequent packet collisions and requires specialized MAC scheduling.
+This simulator provides a cross-layer environment to test MAC and Routing protocols against the **Thorp Attenuation Model**, allowing researchers to visualize packet collisions and energy consumption in a 3D oceanic space.
 
-Dynamic Topology & Mobility: Supports 3D node deployment with Gaussian Random Walk mobility to simulate AUVs (Autonomous Underwater Vehicles) and drifting sensor buoys.
 
-Protocol Sandbox: Pre-configured with Slotted ALOHA for MAC and Depth-Based Routing (DBR), allowing for "Void Hole" detection and energy-consumption analysis.
 
-🛠 Tech Stack
-Simulation Engine: Python 3.x / SimPy (Discrete-Event Simulation) or C++ (NS-3/Aqua-Sim).
+---
 
-Mathematics: NumPy & SciPy (Signal attenuation & BER curves).
+### 🚀 Key Features
 
-Visualization: Matplotlib 3D for node trajectory and packet-flow heatmaps.
+* **Physical Layer Realism:** Implements **Thorp’s Propagation Model** to calculate frequency-dependent attenuation and ambient noise (shipping, wind, and thermal).
+* **High-Latency MAC Scheduling:** Specialized handling for the "Slotted-Prop" effect, where propagation delay often exceeds packet transmission time.
+* **3D Mobility Support:** Simulates **Autonomous Underwater Vehicles (AUVs)** and drifting buoys using Gaussian Random Walk and depth-regulated movement.
+* **Protocol Sandbox:** Includes pre-configured modules for:
+    * **MAC:** Slotted ALOHA, UW-MAC.
+    * **Routing:** Depth-Based Routing (DBR) and Vector-Based Forwarding (VBF).
+* **Energy Analysis:** Tracks micro-joule consumption for Transmit, Receive, and Idle states to predict node longevity.
 
-Data Format: JSON-based configuration files for sea-state parameters (salinity, temperature, depth).
+---
 
-📊 Performance Metrics
-Packet Delivery Ratio (PDR): Benchmarked under varying "Turbid" and "Deep Ocean" noise profiles.
+### 🛠 Tech Stack
 
-End-to-End Latency: Successfully modeled the 5-order-of-magnitude delay increase compared to RF networks.
+* **Engine:** `Python 3.10+` / `SimPy` (Discrete-Event Simulation framework).
+* **Math & Physics:** `NumPy` & `SciPy` (Signal-to-Noise Ratio (SNR) and Bit Error Rate (BER) calculations).
+* **Visualization:** `Matplotlib 3D` (Node trajectory) & `Plotly` (Interactive packet-loss heatmaps).
+* **Configuration:** `YAML` / `JSON` for environmental parameters (Salinity, Temperature, Depth).
 
-Energy Efficiency: Tracks "Battery Drain per Bit" to predict the operational lifespan of submerged nodes.
+---
 
+### 🔌 System Architecture
+
+| Component | Responsibility | Technical Implementation |
+| :--- | :--- | :--- |
+| **Acoustic Channel** | Signal Attenuation | Thorp Model & Passive Sonar Equation |
+| **MAC Layer** | Collision Avoidance | Propagation-Delay Aware Scheduling |
+| **Network Layer** | Data Forwarding | Depth-Based Routing (Pressure-Sensor Emulation) |
+| **Mobility Manager** | Node Movement | 3D Coordinate Kinematics |
+
+---
+
+### 📊 Performance Metrics
+
+The simulator outputs a comprehensive analytics suite including:
+* **PDR (Packet Delivery Ratio):** Effectiveness of routing under varying "Turbid" conditions.
+* **End-to-End Latency:** Detailed breakdown of processing vs. propagation delay.
+* **Void Hole Analysis:** Identifies communication gaps caused by node sparsity or current-driven drift.
+
+---
+
+### ⚙️ Quick Start
+
+1. **Clone the repository:**
+   ```bash
+   git clone [https://github.com/username/osar-uw-simulator.git](https://github.com/username/osar-uw-simulator.git)
 Simulation Results : 
 
 

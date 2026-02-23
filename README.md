@@ -16,3 +16,9 @@ Machine Learning Results on OC/LC classification:
 <img width="411" height="165" alt="LC_SVM" src="https://github.com/user-attachments/assets/eb67491c-a452-4af8-8aa1-ee67f70dfe1a" />
 
 <img width="512" height="518" alt="RF" src="https://github.com/user-attachments/assets/3f8aa24d-a651-488d-b112-f1c3cba73298" />
+
+Video Demonstration of Simulation:
+
+https://github.com/user-attachments/assets/a70cc8a5-30fc-4b64-bf31-032ea35a167e
+
+
